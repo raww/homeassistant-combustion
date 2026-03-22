@@ -18,7 +18,7 @@
 from unittest.mock import patch
 
 import pytest
-from homeassistant.helpers.typing import HomeAssistantType
+from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 pytest_plugins = "pytest_homeassistant_custom_component"
@@ -47,7 +47,7 @@ def skip_notifications_fixture():
         yield
 
 @pytest.fixture()
-def mock_config_entry(hass: HomeAssistantType) -> MockConfigEntry:
+def mock_config_entry(hass: HomeAssistant) -> MockConfigEntry:
     """Create a mock config entry and add it to hass."""
     entry = MockConfigEntry(title=None)
     entry.add_to_hass(hass)

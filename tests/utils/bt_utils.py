@@ -83,6 +83,7 @@ COMBUSTION_SERVICE_INFO = BluetoothServiceInfoBleak(
     ),
     connectable=True,
     time=0,
+    tx_power=-127,
 )
 
 def inject_bt_advertisement(hass: HomeAssistant, service_info: BluetoothServiceInfoBleak):
@@ -115,6 +116,7 @@ def create_advertisement(combustion_bits):
         advertisement=adv,
         connectable=True,
         time=0,
+        tx_power=-127,
     )
 
 def create_combustion_bits(
