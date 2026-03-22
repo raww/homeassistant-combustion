@@ -2,7 +2,6 @@
 from typing import Any
 from unittest.mock import patch
 
-from bitstring import Bits
 from bleak.backends.scanner import AdvertisementData, BLEDevice
 from combustion.combustion_ble.advertising_data import CombustionProductType
 from combustion.combustion_ble.mode_id import ProbeMode
@@ -130,8 +129,8 @@ def create_combustion_bits(
         battery_ok: bool = True
     ):
     """Create a bit representation for use in a BT advertisement."""
-    device_type = CombustionProductType[device_type].value.to_bytes(1)
-    serial_number =  Bits(hex=f'0x{serial_number}')
+    device_type_bytes = CombustionProductType[device_type].value.to_bytes(1, 'big')
+    serial_number_bytes = bytes.fromhex(serial_number)
 
     if not temperature_data:
         temperature_data = [20.0, 21.1, 22.2, 23.3, 24.4, 25.5, 26.6, 27.7]
@@ -156,14 +155,14 @@ def create_combustion_bits(
 
     bytes_.reverse()
 
-    temperatures = Bits(bytes(bytes_))
+    temperatures_bytes = bytes(bytes_)
 
     # Mode id
     id_value = probe_id - 1
     color_value = 0
     mode_value = mode
     # Combine these values into a byte
-    mode_id  = Bits(((id_value << 5) | (color_value << 2) | mode_value).to_bytes())
+    mode_id_byte = ((id_value << 5) | (color_value << 2) | mode_value).to_bytes(1, 'big')
 
     # Virtual Sensors
     core_value = core_sensor_id - 1
@@ -178,21 +177,8 @@ def create_combustion_bits(
     # Battery Status
     status_value = 1 if battery_ok else 0
 
-    battery_virtual_byte = Bits(((status_value & 0x1) | (virtual_byte << 1)).to_bytes())
+    battery_virtual_byte = ((status_value & 0x1) | (virtual_byte << 1)).to_bytes(1, 'big')
 
-    network_info_byte = Bits(int.to_bytes(0))
+    network_info_byte = b'\x00'
 
-    return  (device_type + serial_number + temperatures + mode_id + battery_virtual_byte + network_info_byte).tobytes()
-
-
-
-# -420 -> 7400
-
-
-# attempt
-# 00011001011010001100101110000110010111000011001011010001100110110000110011010000011001101100001100111001
-# 00101101110000110110010110111000100011001001011001100001001100110110100010000110110011011100100000011001
-
-
-# actual
-# 00101101110000110110010110111000100011001001011001100001001100110110100010000110110011011100100000011001
+    return device_type_bytes + serial_number_bytes + temperatures_bytes + mode_id_byte + battery_virtual_byte + network_info_byte
