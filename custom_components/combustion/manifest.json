@@ -13,7 +13,9 @@
   ],
   "config_flow": true,
   "dependencies": [
-    "bluetooth_adapters"
+    "bluetooth_adapters",
+    "http",
+    "frontend"
   ],
   "documentation": "https://github.com/raww/homeassistant-combustion",
   "integration_type": "hub",
