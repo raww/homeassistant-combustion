@@ -20,6 +20,11 @@ class CombustionEntity(Entity):
             manufacturer=MANUFACTURER,
         )
 
+    @property
+    def available(self) -> bool:
+        """Available while the device keeps advertising."""
+        return self.probe_manager.device_available(self.device_serial_number)
+
     async def async_added_to_hass(self) -> None:
         """Register for updates once the entity is actually part of hass.
 

@@ -272,3 +272,47 @@ async def test_listener_removed_with_entity(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     assert len(probe_manager._listeners) == 0
+
+
+@pytest.mark.asyncio
+async def test_entities_become_unavailable_when_device_stops_advertising(hass: HomeAssistant):
+    """Entities must go unavailable after the availability timeout (issue #44)."""
+    import time as real_time
+    from datetime import timedelta
+    from unittest.mock import patch
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    mock_entry = MockConfigEntry(
+        unique_id="test_availability",
+        domain=DOMAIN,
+        version=1,
+        data={},
+        title="Meatnet",
+    )
+
+    await _setup_config_entry(hass, mock_entry)
+
+    inject_bt_advertisement(hass, create_advertisement(create_combustion_bits(temperature_data=[25.0] * 8)))
+    await hass.async_block_till_done()
+
+    er = entity_registry.async_get(hass)
+    core_entities = [e for e in er.entities.values() if (e.unique_id or '').endswith('--sensor--core')]
+    assert len(core_entities) == 1
+    entity_id = core_entities[0].entity_id
+
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert state.state not in ('unavailable', 'unknown')
+
+    # Simulate 120s of silence, then let the periodic availability check fire.
+    with patch(
+        'custom_components.combustion.probe_manager.time.monotonic',
+        return_value=real_time.monotonic() + 120.0,
+    ):
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=31))
+        await hass.async_block_till_done()
+
+        state = hass.states.get(entity_id)
+        assert state.state == 'unavailable'

@@ -5,14 +5,20 @@ https://github.com/legrego/homeassistant-combustion
 """
 from __future__ import annotations
 
+from datetime import timedelta
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.event import async_track_time_interval
 
 from custom_components.combustion.bluetooth_listener import BluetoothListener
 from custom_components.combustion.probe_manager import ProbeManager
 
 from .const import DOMAIN
+
+# How often entity availability is re-evaluated when no advertisements arrive.
+AVAILABILITY_CHECK_INTERVAL = timedelta(seconds=30)
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -35,6 +41,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     probe_manager.async_init()
     listener.async_init()
+
+    # When a device stops advertising, no bluetooth callback fires to push the
+    # entities to unavailable; re-notify periodically so availability updates.
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass,
+            lambda _now: probe_manager.notify_listeners(),
+            AVAILABILITY_CHECK_INTERVAL,
+        )
+    )
 
     return True
 

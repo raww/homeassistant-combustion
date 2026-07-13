@@ -14,6 +14,11 @@ _LOGGER = LOGGER.getChild('probe_manager')
 # recorder overwhelms Home Assistant. Updates are throttled per device.
 MIN_NOTIFY_INTERVAL_SECONDS = 1.0
 
+# A device that has not advertised for this long is considered unavailable.
+# Probes advertise every 250ms and gauges/nodes every few seconds, so 90s of
+# silence means the device is off, out of range, or in its charger.
+AVAILABILITY_TIMEOUT_SECONDS = 90.0
+
 
 class ProbeManager:
     """Manage discovered Combustion devices."""
@@ -26,6 +31,7 @@ class ProbeManager:
         self.data = {}
         self._listeners = []
         self._last_notify: dict[str, float] = {}
+        self._last_seen: dict[str, float] = {}
         self._failed_devices: set[str] = set()
 
     def init_sensor_platform(self, create_sensors_callback):
@@ -49,6 +55,9 @@ class ProbeManager:
             if serial in self._failed_devices:
                 return
 
+            now = time.monotonic()
+            self._last_seen[serial] = now
+
             is_new = serial not in self.data
             self.data[serial] = device_data
 
@@ -64,15 +73,25 @@ class ProbeManager:
                     _LOGGER.exception("Failed to create entities for device [%s]; ignoring this device", serial)
                     return
 
-            now = time.monotonic()
             if not is_new and now - self._last_notify.get(serial, 0.0) < MIN_NOTIFY_INTERVAL_SECONDS:
                 return
             self._last_notify[serial] = now
 
-            for listener in self._listeners:
-                listener()
+            self.notify_listeners()
 
         return update
+
+    def notify_listeners(self):
+        """Notify all listeners that device state may have changed."""
+        for listener in list(self._listeners):
+            listener()
+
+    def device_available(self, serial_number: str) -> bool:
+        """Whether the device has advertised recently."""
+        last_seen = self._last_seen.get(serial_number)
+        if last_seen is None:
+            return False
+        return time.monotonic() - last_seen < AVAILABILITY_TIMEOUT_SECONDS
 
     def add_update_listener(self, listener):
         """Add listener to be notified of probe updates.
