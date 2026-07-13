@@ -52,11 +52,11 @@ async def test_entity_creation(hass: HomeAssistant):
     disabled_sensors = [e for e in sensors if e.disabled is True]
     binary_sensors = [e for e in entities if e.domain == 'binary_sensor']
 
-    assert len(entities) == 17
+    assert len(entities) == 18
     assert len(sensors) == 14
     # 9 disabled by default: 8 temperature sensors, and 1 RSSI sensor
     assert len(disabled_sensors) == 9
-    assert len(binary_sensors) == 3
+    assert len(binary_sensors) == 4
 
 
 @pytest.mark.asyncio
@@ -84,7 +84,7 @@ async def test_entity_creation_non_connectable(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     entities = entity_registry.async_entries_for_config_entry(er, entry.entry_id)
-    assert len(entities) == 17
+    assert len(entities) == 18
 
 
 def _booster_bits() -> bytes:
@@ -579,3 +579,52 @@ async def test_options_flow(hass: HomeAssistant):
     manager = hass.data[DOMAIN]
     assert manager.availability_timeout_seconds == 30.0
     assert manager.min_notify_interval_seconds == 2.5
+
+
+@pytest.mark.asyncio
+async def test_probe_inserted_detects_fridge_cold_meat(hass: HomeAssistant):
+    """Cold meat at room temperature reads as inserted (differential) but not cooking."""
+    import time as real_time
+    from unittest.mock import patch
+
+    mock_entry = MockConfigEntry(
+        unique_id="test_inserted",
+        domain=DOMAIN,
+        version=1,
+        data={},
+        title="Meatnet",
+    )
+
+    await _setup_config_entry(hass, mock_entry)
+
+    uniform = create_advertisement(create_combustion_bits(temperature_data=[20.0] * 8))
+    inject_bt_advertisement(hass, uniform)
+    await hass.async_block_till_done()
+    inject_bt_advertisement(hass, uniform)
+    await hass.async_block_till_done()
+
+    er = entity_registry.async_get(hass)
+    inserted_id = next(e.entity_id for e in er.entities.values() if (e.unique_id or '').endswith('--inserted'))
+    cooking_id = next(e.entity_id for e in er.entities.values() if (e.unique_id or '').endswith('--cooking'))
+
+    # Probe on the counter: uniform temperatures -> not inserted.
+    assert hass.states.get(inserted_id).state == 'off'
+
+    base = real_time.monotonic()
+    # Into fridge-cold meat on the counter: tip 4C, handle 20C.
+    fridge_meat = create_advertisement(create_combustion_bits(temperature_data=[4.0] + [20.0] * 7))
+    with patch('custom_components.combustion.probe_manager.time.monotonic', return_value=base + 10.0):
+        inject_bt_advertisement(hass, fridge_meat)
+        await hass.async_block_till_done()
+        state = hass.states.get(inserted_id)
+        assert state.state == 'on'
+        assert state.attributes['differential'] == 16.0
+        assert hass.states.get(cooking_id).state == 'off'
+
+    # Resting: hot core, room ambient -> still inserted, not cooking.
+    resting = create_advertisement(create_combustion_bits(temperature_data=[60.0] + [22.0] * 7))
+    with patch('custom_components.combustion.probe_manager.time.monotonic', return_value=base + 20.0):
+        inject_bt_advertisement(hass, resting)
+        await hass.async_block_till_done()
+        assert hass.states.get(inserted_id).state == 'on'
+        assert hass.states.get(cooking_id).state == 'off'
