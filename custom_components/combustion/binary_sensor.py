@@ -62,6 +62,7 @@ def _create_binary_sensors(probe_manager: ProbeManager, device_data):
     return [
         CombustionBatterySensor(probe_manager, device_data),
         CombustionProbeOverheatingSensor(probe_manager, device_data),
+        CombustionCookingSensor(probe_manager, device_data),
     ]
 
 
@@ -123,6 +124,71 @@ class CombustionBatterySensor(BaseCombustionBinarySensor):
         """Return true if the battery is low."""
         data = self._device_data()
         return None if data is None else not data.battery_ok
+
+
+COOKING_DESCRIPTION = BinarySensorEntityDescription(
+    key="probe_cooking",
+    name="Cooking",
+    device_class=BinarySensorDeviceClass.RUNNING
+)
+
+# The probe is considered cooking once its ambient sensor sees temperatures no
+# household environment reaches; hysteresis avoids flapping around the edge.
+COOKING_ON_AMBIENT_C = 45.0
+COOKING_OFF_AMBIENT_C = 40.0
+
+
+class CombustionCookingSensor(BaseCombustionBinarySensor):
+    """Whether the probe appears to be in an active cook.
+
+    Derived purely from advertisement data: on when the ambient (handle-end)
+    virtual sensor exceeds 45C, off again below 40C.
+    """
+
+    def __init__(self, probe_manager: ProbeManager, device_data) -> None:
+        """Initialize."""
+        super().__init__(probe_manager, device_data)
+        self._attr_unique_id = f'{device_data.serial_number}--cooking'
+        self.entity_description = COOKING_DESCRIPTION
+        self._cooking = False
+
+    @property
+    def name(self):
+        """Sensor name."""
+        return 'Cooking'
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return true while the probe appears to be cooking."""
+        data = self._device_data()
+        if data is None:
+            return None
+        try:
+            (_sensor, ambient) = data.ambient_sensor
+        except Exception:
+            return None
+
+        if self._cooking:
+            self._cooking = ambient >= COOKING_OFF_AMBIENT_C
+        else:
+            self._cooking = ambient >= COOKING_ON_AMBIENT_C
+        return self._cooking
+
+    @property
+    def extra_state_attributes(self):
+        """Current core/ambient readings backing the state."""
+        data = self._device_data()
+        if data is None:
+            return None
+        try:
+            (_c, core) = data.core_sensor
+            (_a, ambient) = data.ambient_sensor
+        except Exception:
+            return None
+        return {
+            'core_temperature': round(core, 1),
+            'ambient_temperature': round(ambient, 1),
+        }
 
 
 class CombustionProbeOverheatingSensor(BaseCombustionBinarySensor):
