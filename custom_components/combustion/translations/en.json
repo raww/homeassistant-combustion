@@ -13,5 +13,16 @@
         "error": {
             "unknown": "Unknown error occurred."
         }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Combustion options",
+                "data": {
+                    "availability_timeout": "Seconds without advertisements before entities become unavailable",
+                    "update_throttle": "Minimum seconds between sensor updates per device"
+                }
+            }
+        }
     }
 }

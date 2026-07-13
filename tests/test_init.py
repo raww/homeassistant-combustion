@@ -52,11 +52,11 @@ async def test_entity_creation(hass: HomeAssistant):
     disabled_sensors = [e for e in sensors if e.disabled is True]
     binary_sensors = [e for e in entities if e.domain == 'binary_sensor']
 
-    assert len(entities) == 16
+    assert len(entities) == 17
     assert len(sensors) == 14
     # 9 disabled by default: 8 temperature sensors, and 1 RSSI sensor
     assert len(disabled_sensors) == 9
-    assert len(binary_sensors) == 2
+    assert len(binary_sensors) == 3
 
 
 @pytest.mark.asyncio
@@ -84,7 +84,7 @@ async def test_entity_creation_non_connectable(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     entities = entity_registry.async_entries_for_config_entry(er, entry.entry_id)
-    assert len(entities) == 16
+    assert len(entities) == 17
 
 
 def _booster_bits() -> bytes:
@@ -446,3 +446,136 @@ async def test_mode_and_overheating_sensors(hass: HomeAssistant):
         overheat_state = hass.states.get(overheat_id)
         assert overheat_state.state == 'on'
         assert overheat_state.attributes['overheating_sensors'] == [2, 8]
+
+
+@pytest.mark.asyncio
+async def test_cooking_sensor_hysteresis(hass: HomeAssistant):
+    """Cooking sensor turns on at >=45C ambient and off below 40C."""
+    import time as real_time
+    from unittest.mock import patch
+
+    mock_entry = MockConfigEntry(
+        unique_id="test_cooking",
+        domain=DOMAIN,
+        version=1,
+        data={},
+        title="Meatnet",
+    )
+
+    await _setup_config_entry(hass, mock_entry)
+
+    def temps(ambient):
+        # Default ambient virtual sensor is T7 (index 6).
+        values = [25.0] * 8
+        values[6] = ambient
+        return values
+
+    cold = create_advertisement(create_combustion_bits(temperature_data=temps(25.0)))
+    inject_bt_advertisement(hass, cold)
+    await hass.async_block_till_done()
+    inject_bt_advertisement(hass, cold)
+    await hass.async_block_till_done()
+
+    er = entity_registry.async_get(hass)
+    cooking_id = next(e.entity_id for e in er.entities.values() if (e.unique_id or '').endswith('--cooking'))
+    mode_id = next(e.entity_id for e in er.entities.values() if (e.unique_id or '').endswith('--mode'))
+
+    assert hass.states.get(cooking_id).state == 'off'
+
+    # Source attributes exposed on the mode sensor
+    mode_attrs = hass.states.get(mode_id).attributes
+    assert mode_attrs['via_repeater'] is False
+    assert mode_attrs['hops'] is None
+    assert 'source_address' in mode_attrs
+
+    base = real_time.monotonic()
+    with patch('custom_components.combustion.probe_manager.time.monotonic', return_value=base + 10.0):
+        inject_bt_advertisement(hass, create_advertisement(create_combustion_bits(temperature_data=temps(80.0))))
+        await hass.async_block_till_done()
+        state = hass.states.get(cooking_id)
+        assert state.state == 'on'
+        assert state.attributes['ambient_temperature'] == 80.0
+
+    with patch('custom_components.combustion.probe_manager.time.monotonic', return_value=base + 20.0):
+        # 42C: below the ON threshold but above the OFF threshold -> stays on
+        inject_bt_advertisement(hass, create_advertisement(create_combustion_bits(temperature_data=temps(42.0))))
+        await hass.async_block_till_done()
+        assert hass.states.get(cooking_id).state == 'on'
+
+    with patch('custom_components.combustion.probe_manager.time.monotonic', return_value=base + 30.0):
+        inject_bt_advertisement(hass, create_advertisement(create_combustion_bits(temperature_data=temps(30.0))))
+        await hass.async_block_till_done()
+        assert hass.states.get(cooking_id).state == 'off'
+
+
+@pytest.mark.asyncio
+async def test_manager_options_respected(hass: HomeAssistant):
+    """Configured availability timeout and update throttle are honored."""
+    from unittest.mock import patch
+
+    from custom_components.combustion.probe_manager import ProbeManager
+
+    manager = ProbeManager(
+        bt_listener=None,
+        availability_timeout_seconds=20.0,
+        min_notify_interval_seconds=5.0,
+    )
+    manager.init_sensor_platform(lambda pm, data: None)
+    manager.init_binary_sensor_platform(lambda pm, data: None)
+
+    notifications = []
+    manager.add_update_listener(lambda: notifications.append(1))
+    update = manager.create_update_callback()
+
+    class FakeData:
+        serial_number = 'opt123'
+        device_type = 'PROBE'
+
+    with patch('custom_components.combustion.probe_manager.time.monotonic') as monotonic:
+        monotonic.return_value = 100.0
+        update(FakeData())
+        monotonic.return_value = 102.0  # under the 5s throttle
+        update(FakeData())
+        assert len(notifications) == 1
+        monotonic.return_value = 105.5  # past the 5s throttle
+        update(FakeData())
+        assert len(notifications) == 2
+
+        monotonic.return_value = 120.0  # 14.5s since last advert < 20s timeout
+        assert manager.device_available('opt123') is True
+        monotonic.return_value = 126.0  # 20.5s since last advert > 20s timeout
+        assert manager.device_available('opt123') is False
+
+
+@pytest.mark.asyncio
+async def test_options_flow(hass: HomeAssistant):
+    """The options flow stores availability timeout and update throttle."""
+
+    mock_entry = MockConfigEntry(
+        unique_id="test_options_flow",
+        domain=DOMAIN,
+        version=1,
+        data={},
+        title="Meatnet",
+    )
+
+    entry = await _setup_config_entry(hass, mock_entry)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result['type'] == 'form'
+    assert result['step_id'] == 'init'
+
+    result = await hass.config_entries.options.async_configure(
+        result['flow_id'],
+        user_input={'availability_timeout': 30, 'update_throttle': 2.5},
+    )
+    assert result['type'] == 'create_entry'
+    await hass.async_block_till_done()
+
+    assert entry.options['availability_timeout'] == 30
+    assert entry.options['update_throttle'] == 2.5
+
+    # The reload triggered by the options update applies them to the manager.
+    manager = hass.data[DOMAIN]
+    assert manager.availability_timeout_seconds == 30.0
+    assert manager.min_notify_interval_seconds == 2.5

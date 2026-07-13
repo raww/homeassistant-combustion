@@ -15,10 +15,13 @@ from homeassistant.helpers.event import async_track_time_interval
 from custom_components.combustion.bluetooth_listener import BluetoothListener
 from custom_components.combustion.probe_manager import ProbeManager
 
-from .const import DOMAIN
-
-# How often entity availability is re-evaluated when no advertisements arrive.
-AVAILABILITY_CHECK_INTERVAL = timedelta(seconds=30)
+from .const import (
+    CONF_AVAILABILITY_TIMEOUT,
+    CONF_UPDATE_THROTTLE,
+    DEFAULT_AVAILABILITY_TIMEOUT,
+    DEFAULT_UPDATE_THROTTLE,
+    DOMAIN,
+)
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -31,8 +34,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up this integration using UI."""
     hass.data.setdefault(DOMAIN, {})
 
+    availability_timeout = entry.options.get(CONF_AVAILABILITY_TIMEOUT, DEFAULT_AVAILABILITY_TIMEOUT)
+    update_throttle = entry.options.get(CONF_UPDATE_THROTTLE, DEFAULT_UPDATE_THROTTLE)
+
     listener = BluetoothListener(hass, entry)
-    probe_manager = ProbeManager(listener)
+    probe_manager = ProbeManager(
+        listener,
+        availability_timeout_seconds=float(availability_timeout),
+        min_notify_interval_seconds=float(update_throttle),
+    )
 
     hass.data[DOMAIN] = probe_manager
 
@@ -44,11 +54,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # When a device stops advertising, no bluetooth callback fires to push the
     # entities to unavailable; re-notify periodically so availability updates.
+    availability_check_interval = timedelta(seconds=max(5.0, float(availability_timeout) / 3))
     entry.async_on_unload(
         async_track_time_interval(
             hass,
             lambda _now: probe_manager.notify_listeners(),
-            AVAILABILITY_CHECK_INTERVAL,
+            availability_check_interval,
         )
     )
 

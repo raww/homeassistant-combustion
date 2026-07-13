@@ -3,14 +3,24 @@ from __future__ import annotations
 
 from typing import Any
 
+import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+from homeassistant.core import callback
 
 from custom_components.combustion.combustion_ble.combustion_probe_data import (
     CombustionProbeData,
 )
 
-from .const import CONF_DEVICES, DOMAIN, LOGGER
+from .const import (
+    CONF_AVAILABILITY_TIMEOUT,
+    CONF_DEVICES,
+    CONF_UPDATE_THROTTLE,
+    DEFAULT_AVAILABILITY_TIMEOUT,
+    DEFAULT_UPDATE_THROTTLE,
+    DOMAIN,
+    LOGGER,
+)
 
 
 def format_unique_id(address: str) -> str:
@@ -25,6 +35,12 @@ class CombustionFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """Initialize the config flow."""
         self._discovered_adv: CombustionProbeData | None = None
         self._all_discovered_devices: dict[str, CombustionProbeData] = {}
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> CombustionOptionsFlowHandler:
+        """Get the options flow for this handler."""
+        return CombustionOptionsFlowHandler(config_entry)
 
     async def async_step_bluetooth(self, discovery_info: BluetoothServiceInfoBleak) -> config_entries.FlowResult:
         """Bluetooth discovery step."""
@@ -120,3 +136,34 @@ class CombustionFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             **entry.data,
             CONF_DEVICES: devices
         })
+
+
+class CombustionOptionsFlowHandler(config_entries.OptionsFlow):
+    """Options flow for Combustion."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize.
+
+        The entry is kept on a private attribute: assigning to
+        OptionsFlow.config_entry was removed in newer Home Assistant versions,
+        while older versions don't provide it automatically.
+        """
+        self._entry = config_entry
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> config_entries.FlowResult:
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        options = self._entry.options
+        schema = vol.Schema({
+            vol.Optional(
+                CONF_AVAILABILITY_TIMEOUT,
+                default=options.get(CONF_AVAILABILITY_TIMEOUT, DEFAULT_AVAILABILITY_TIMEOUT),
+            ): vol.All(vol.Coerce(int), vol.Range(min=15, max=600)),
+            vol.Optional(
+                CONF_UPDATE_THROTTLE,
+                default=options.get(CONF_UPDATE_THROTTLE, DEFAULT_UPDATE_THROTTLE),
+            ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=30.0)),
+        })
+        return self.async_show_form(step_id="init", data_schema=schema)

@@ -13,12 +13,14 @@ _LOGGER = LOGGER.getChild('probe_manager')
 # Advertisements arrive roughly every 250ms (and from multiple bluetooth
 # proxies); pushing every one of them through the entity state machine and
 # recorder overwhelms Home Assistant. Updates are throttled per device.
-MIN_NOTIFY_INTERVAL_SECONDS = 1.0
+# Configurable via the integration options.
+DEFAULT_MIN_NOTIFY_INTERVAL_SECONDS = 1.0
 
 # A device that has not advertised for this long is considered unavailable.
-# Probes advertise every 250ms and gauges/nodes every few seconds, so 90s of
-# silence means the device is off, out of range, or in its charger.
-AVAILABILITY_TIMEOUT_SECONDS = 90.0
+# Probes advertise every 250ms and gauges/nodes every few seconds, so silence
+# means the device is off, out of range, or in its charger. Configurable via
+# the integration options.
+DEFAULT_AVAILABILITY_TIMEOUT_SECONDS = 90.0
 
 # While direct probe advertisements are arriving, data repeated by MeatNet
 # nodes (booster/display) for the same probe is ignored: the repeated copy can
@@ -35,9 +37,16 @@ INSTANT_READ_STALE_SECONDS = 15.0
 class ProbeManager:
     """Manage discovered Combustion devices."""
 
-    def __init__(self, bt_listener: BluetoothListener) -> None:
+    def __init__(
+        self,
+        bt_listener: BluetoothListener,
+        availability_timeout_seconds: float = DEFAULT_AVAILABILITY_TIMEOUT_SECONDS,
+        min_notify_interval_seconds: float = DEFAULT_MIN_NOTIFY_INTERVAL_SECONDS,
+    ) -> None:
         """Initialize."""
         self.bluetooth_listener = bt_listener
+        self.availability_timeout_seconds = availability_timeout_seconds
+        self.min_notify_interval_seconds = min_notify_interval_seconds
         self.create_sensors_callback = None
         self.create_binary_sensors_callback = None
         self.data = {}
@@ -102,7 +111,7 @@ class ProbeManager:
                     _LOGGER.exception("Failed to create entities for device [%s]; ignoring this device", serial)
                     return
 
-            if not is_new and now - self._last_notify.get(serial, 0.0) < MIN_NOTIFY_INTERVAL_SECONDS:
+            if not is_new and now - self._last_notify.get(serial, 0.0) < self.min_notify_interval_seconds:
                 return
             self._last_notify[serial] = now
 
@@ -130,7 +139,7 @@ class ProbeManager:
         last_seen = self._last_seen.get(serial_number)
         if last_seen is None:
             return False
-        return time.monotonic() - last_seen < AVAILABILITY_TIMEOUT_SECONDS
+        return time.monotonic() - last_seen < self.availability_timeout_seconds
 
     def add_update_listener(self, listener):
         """Add listener to be notified of probe updates.
