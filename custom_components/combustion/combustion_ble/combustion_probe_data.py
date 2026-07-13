@@ -93,6 +93,22 @@ class CombustionProbeData:
         return {0: 'yellow', 1: 'grey'}.get(raw, f'color {raw + 1}')
 
     @property
+    def via_repeater(self) -> bool:
+        """Whether this data arrived via a MeatNet repeater rather than the probe itself."""
+        return self.advertising_data.type.name == 'MEAT_NET_NODE'
+
+    @property
+    def hops(self) -> int | None:
+        """Repeater hop count for repeated data; None for direct probe data.
+
+        The network information byte is unused ("don't care") in the probe's
+        own advertisements, so it is only meaningful for repeated data.
+        """
+        if not self.via_repeater:
+            return None
+        return self.advertising_data.hop_count.value + 1
+
+    @property
     def overheating(self) -> bool:
         """Whether any thermistor is overheating."""
         return self.advertising_data.overheating_mask != 0

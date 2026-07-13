@@ -208,12 +208,15 @@ class CombustionModeSensor(CombustionEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> Mapping[str, Any] | None:
-        """Probe identity attributes."""
+        """Probe identity and data-source attributes."""
         try:
             data = self.probe_manager.probe_data(self.device_serial_number)
             return {
                 'probe_id': data.probe_id,
                 'color': data.color_name,
+                'source_address': data.address,
+                'via_repeater': data.via_repeater,
+                'hops': data.hops,
             }
         except Exception:
             return None
