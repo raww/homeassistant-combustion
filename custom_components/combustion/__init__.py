@@ -6,11 +6,13 @@ https://github.com/legrego/homeassistant-combustion
 from __future__ import annotations
 
 from datetime import timedelta
+from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.loader import async_get_integration
 
 from custom_components.combustion.bluetooth_listener import BluetoothListener
 from custom_components.combustion.probe_manager import ProbeManager
@@ -21,6 +23,7 @@ from .const import (
     DEFAULT_AVAILABILITY_TIMEOUT,
     DEFAULT_UPDATE_THROTTLE,
     DOMAIN,
+    LOGGER,
 )
 
 PLATFORMS: list[Platform] = [
@@ -28,11 +31,47 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR
 ]
 
+FRONTEND_CARD_URL = "/combustion/combustion-card.js"
+FRONTEND_REGISTERED_KEY = f"{DOMAIN}_frontend_registered"
+
+
+async def _async_register_frontend_card(hass: HomeAssistant) -> None:
+    """Serve and auto-load the bundled combustion-card Lovelace card.
+
+    Best-effort: dashboards work without it, so a failure (e.g. frontend not
+    loaded, as in tests) must never break integration setup.
+    """
+    if hass.data.get(FRONTEND_REGISTERED_KEY):
+        return
+    try:
+        http = getattr(hass, 'http', None)
+        if http is None:
+            return
+        card_path = str(Path(__file__).parent / "www" / "combustion-card.js")
+        try:
+            from homeassistant.components.http import StaticPathConfig
+            await http.async_register_static_paths(
+                [StaticPathConfig(FRONTEND_CARD_URL, card_path, True)]
+            )
+        except ImportError:
+            # Home Assistant < 2024.6
+            http.register_static_path(FRONTEND_CARD_URL, card_path, True)
+
+        from homeassistant.components.frontend import add_extra_js_url
+        integration = await async_get_integration(hass, DOMAIN)
+        version = integration.version or "0"
+        add_extra_js_url(hass, f"{FRONTEND_CARD_URL}?v={version}")
+        hass.data[FRONTEND_REGISTERED_KEY] = True
+    except Exception:  # noqa: BLE001
+        LOGGER.debug("Could not register the combustion card frontend resource", exc_info=True)
+
 
 # https://developers.home-assistant.io/docs/config_entries_index/#setting-up-an-entry
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up this integration using UI."""
     hass.data.setdefault(DOMAIN, {})
+
+    await _async_register_frontend_card(hass)
 
     availability_timeout = entry.options.get(CONF_AVAILABILITY_TIMEOUT, DEFAULT_AVAILABILITY_TIMEOUT)
     update_throttle = entry.options.get(CONF_UPDATE_THROTTLE, DEFAULT_UPDATE_THROTTLE)

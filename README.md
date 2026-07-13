@@ -57,6 +57,27 @@ New features:
 
 There is currently no configuration required for this integration. Once the integration discovers your Combustion device(s), it will prompt you to add them on the Integrations page.
 
+Optional settings live under **Settings → Devices & Services → Combustion → Configure**: the availability timeout (how long a device may stay silent before its entities become unavailable) and the per-device update throttle.
+
+## Dashboard card
+
+The integration bundles a Lovelace card styled after the Combustion WiFi Display — yellow housing, segmented LCD, and a **graph** button that flips the LCD into a temperature history chart. It registers itself automatically; no resource setup needed.
+
+```yaml
+type: custom:combustion-card
+serial: 10007dc0        # probe serial — or a gauge serial like CR100040A8
+name: brisket           # optional label, shown as "1/brisket" on the LCD
+```
+
+Instead of `serial` you can point it at any entity of the device:
+
+```yaml
+type: custom:combustion-card
+entity: sensor.predictive_thermometer_10007dc0_core_temperature
+```
+
+Probes show core temperature with ambient and instant-read sub-panels plus cooking / probe-in / battery chips. Gauges show the gauge temperature with low/high alarm setpoints and alarm / no-sensor / battery chips. `view: plot` starts in the graph view; `hours: 3` widens the history window.
+
 ## Supported devices
 
 This integration supports reading temperature and battery data from Combustion's [Predictive Thermometer](https://combustion.inc/products/predictive-thermometer) and temperature, alarm and status data from the Giant Grill Gauge.
