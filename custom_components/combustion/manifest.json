@@ -12,10 +12,12 @@
     "@legrego"
   ],
   "config_flow": true,
-  "dependencies": [
-    "bluetooth_adapters",
+  "after_dependencies": [
     "http",
     "frontend"
+  ],
+  "dependencies": [
+    "bluetooth_adapters"
   ],
   "documentation": "https://github.com/raww/homeassistant-combustion",
   "integration_type": "hub",
