@@ -19,6 +19,13 @@ MIN_NOTIFY_INTERVAL_SECONDS = 1.0
 # silence means the device is off, out of range, or in its charger.
 AVAILABILITY_TIMEOUT_SECONDS = 90.0
 
+# While direct probe advertisements are arriving, data repeated by MeatNet
+# nodes (booster/display) for the same probe is ignored: the repeated copy can
+# be slightly stale, and letting it overwrite fresh direct readings causes
+# values to flip-flop. Repeated data is used again once the probe itself has
+# been silent for this long (e.g. it is out of range of every proxy).
+DIRECT_DATA_PREFERENCE_SECONDS = 5.0
+
 
 class ProbeManager:
     """Manage discovered Combustion devices."""
@@ -32,6 +39,7 @@ class ProbeManager:
         self._listeners = []
         self._last_notify: dict[str, float] = {}
         self._last_seen: dict[str, float] = {}
+        self._last_direct_seen: dict[str, float] = {}
         self._failed_devices: set[str] = set()
 
     def init_sensor_platform(self, create_sensors_callback):
@@ -57,6 +65,13 @@ class ProbeManager:
 
             now = time.monotonic()
             self._last_seen[serial] = now
+
+            if device_data.device_type == 'PROBE':
+                self._last_direct_seen[serial] = now
+            elif device_data.device_type == 'MEAT_NET_NODE':
+                last_direct = self._last_direct_seen.get(serial)
+                if last_direct is not None and now - last_direct < DIRECT_DATA_PREFERENCE_SECONDS:
+                    return
 
             is_new = serial not in self.data
             self.data[serial] = device_data

@@ -228,6 +228,7 @@ async def test_update_notifications_are_throttled(hass: HomeAssistant):
 
     class FakeData:
         serial_number = 'abc123'
+        device_type = 'PROBE'
 
     with patch('custom_components.combustion.probe_manager.time.monotonic') as monotonic:
         monotonic.return_value = 100.0
@@ -316,3 +317,36 @@ async def test_entities_become_unavailable_when_device_stops_advertising(hass: H
 
         state = hass.states.get(entity_id)
         assert state.state == 'unavailable'
+
+
+@pytest.mark.asyncio
+async def test_direct_data_preferred_over_repeated(hass: HomeAssistant):
+    """Node-repeated data must not overwrite fresh direct probe data."""
+    from unittest.mock import patch
+
+    from custom_components.combustion.probe_manager import ProbeManager
+
+    manager = ProbeManager(bt_listener=None)
+    manager.init_sensor_platform(lambda pm, data: None)
+    manager.init_binary_sensor_platform(lambda pm, data: None)
+    update = manager.create_update_callback()
+
+    class Data:
+        def __init__(self, device_type, tag):
+            self.serial_number = 'abc123'
+            self.device_type = device_type
+            self.tag = tag
+
+    with patch('custom_components.combustion.probe_manager.time.monotonic') as monotonic:
+        monotonic.return_value = 100.0
+        update(Data('PROBE', 'direct-1'))
+        update(Data('MEAT_NET_NODE', 'repeat-1'))  # fresh direct data exists -> ignored
+        assert manager.probe_data('abc123').tag == 'direct-1'
+
+        monotonic.return_value = 106.0  # direct data now stale (>5s)
+        update(Data('MEAT_NET_NODE', 'repeat-2'))
+        assert manager.probe_data('abc123').tag == 'repeat-2'
+
+        monotonic.return_value = 107.0
+        update(Data('PROBE', 'direct-2'))
+        assert manager.probe_data('abc123').tag == 'direct-2'
