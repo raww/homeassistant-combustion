@@ -12,11 +12,27 @@ from .probe_temperatures import ProbeTemperatures
 
 
 class CombustionProductType(Enum):
-    """Combustion Product Type."""
+    """Combustion Product Type.
+
+    See https://github.com/combustion-inc/combustion-documentation
+    (meatnet_node_ble_specification.rst, "Product Type").
+    """
 
     UNKNOWN = 0x00
     PROBE = 0x01
     MEAT_NET_NODE = 0x02
+    GAUGE = 0x03
+    DISPLAY = 0x04
+    BOOSTER = 0x05
+    ENGINE = 0x06
+
+    @classmethod
+    def from_byte(cls, byte: int) -> 'CombustionProductType':
+        """Create instance from a raw byte, tolerating future product types."""
+        try:
+            return cls(byte)
+        except ValueError:
+            return cls.UNKNOWN
 
 
 class AdvertisingData(NamedTuple):
@@ -28,24 +44,26 @@ class AdvertisingData(NamedTuple):
     mode_id: ModeId
     battery_status_virtual_sensors: BatteryStatusVirtualSensors
     hop_count: HopCount
-    bit_string: str
 
     @staticmethod
     def from_data(data: bytes) -> Optional['AdvertisingData']:
         """Create instance from raw advertising data."""
         if data is None or len(data) < 20:
-            LOGGER.warn('Not constructing Advertising data because [%s] != 20', len(data))
+            LOGGER.debug('Not constructing Advertising data because [%s] != 20', len(data) if data else None)
             return None
 
         # Vendor ID
         vendor_id = int.from_bytes(data[0:2], byteorder='big')
         if vendor_id != 0x09C7:
-            LOGGER.warn("Not constructing Advertising data because [%s] != 0x09C7", vendor_id)
+            LOGGER.debug("Not constructing Advertising data because [%s] != 0x09C7", vendor_id)
             return None
 
         # Product type
-        type_byte = data[2]
-        product_type = CombustionProductType(type_byte)
+        product_type = CombustionProductType.from_byte(data[2])
+        if product_type not in (CombustionProductType.PROBE, CombustionProductType.MEAT_NET_NODE):
+            # Only probe advertisements (direct or repeated by a MeatNet node)
+            # carry the probe payload parsed below.
+            return None
 
         # Serial number
         serial_number = int.from_bytes(data[3:7], byteorder='little')
@@ -62,7 +80,4 @@ class AdvertisingData(NamedTuple):
         # Hop Count
         hop_count = HopCount.from_network_info_byte(data[22]) if len(data) >= 23 else HopCount.default_values()
 
-        # Bit String
-        bit_string = ''.join(format(b, '08b') for b in data)
-
-        return AdvertisingData(type=product_type, serial_number=serial_number, temperatures=temperatures, mode_id=mode_id, battery_status_virtual_sensors=battery_status_virtual_sensors, hop_count=hop_count, bit_string=bit_string)
+        return AdvertisingData(type=product_type, serial_number=serial_number, temperatures=temperatures, mode_id=mode_id, battery_status_virtual_sensors=battery_status_virtual_sensors, hop_count=hop_count)

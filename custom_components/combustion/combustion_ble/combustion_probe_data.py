@@ -4,7 +4,7 @@ from __future__ import annotations
 from home_assistant_bluetooth import BluetoothServiceInfoBleak
 from sensor_state_data import description
 
-from custom_components.combustion.const import BT_MANUFACTURER_ID, LOGGER
+from custom_components.combustion.const import BT_MANUFACTURER_ID
 
 from .advertising_data import AdvertisingData
 from .battery_status_virtual_sensors import BatteryStatus
@@ -139,11 +139,11 @@ class CombustionProbeData:
     @staticmethod
     def from_advertisement(service_info: BluetoothServiceInfoBleak):
         """Create instance from BT advertisement data."""
-        LOGGER.debug("Parsing combustion BLE advertisement data: %s", service_info.as_dict())
-
         vendor_id = 0x09C7.to_bytes(2, 'big')
         data = vendor_id + service_info.manufacturer_data[BT_MANUFACTURER_ID]
         advertising_data = AdvertisingData.from_data(data)
+        if advertising_data is None:
+            return None
 
         return CombustionProbeData(advertising_data, service_info.rssi, service_info.address)
 

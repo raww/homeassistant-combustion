@@ -36,7 +36,7 @@ class CombustionFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         data = CombustionProbeData.from_advertisement(discovery_info)
-        if not data.valid:
+        if data is None or not data.valid:
             return self.async_abort(reason="not_supported")
 
         self._all_discovered_devices[discovery_info.address] = data
@@ -103,8 +103,13 @@ class CombustionFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _add_device_to_entry(self, entry: config_entries.ConfigEntry, address: str, device: CombustionProbeData) -> bool:
         """Add a Combustion device to an existing entry."""
-        LOGGER.debug("Adding device to existing entry")
         devices = entry.data.get(CONF_DEVICES, []).copy()
+        if any(d.get("address") == address for d in devices):
+            # Already known. Updating the entry anyway would fire the entry
+            # update listener and needlessly reload the whole integration.
+            return True
+
+        LOGGER.debug("Adding device to existing entry")
         devices.append({
             "name": "Combustion meatnet",
             "address": address,

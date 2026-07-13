@@ -1,24 +1,32 @@
-"""Manage discovered predictive probes."""
+"""Manage discovered Combustion devices (probes and gauges)."""
+
+import time
 
 from homeassistant.core import callback
 
 from custom_components.combustion.bluetooth_listener import BluetoothListener
-from custom_components.combustion.combustion_ble.combustion_probe_data import (
-    CombustionProbeData,
-)
 from custom_components.combustion.const import LOGGER
 
 _LOGGER = LOGGER.getChild('probe_manager')
 
+# Advertisements arrive roughly every 250ms (and from multiple bluetooth
+# proxies); pushing every one of them through the entity state machine and
+# recorder overwhelms Home Assistant. Updates are throttled per device.
+MIN_NOTIFY_INTERVAL_SECONDS = 1.0
+
+
 class ProbeManager:
-    """Manage discovered predictive probes."""
+    """Manage discovered Combustion devices."""
 
     def __init__(self, bt_listener: BluetoothListener) -> None:
         """Initialize."""
         self.bluetooth_listener = bt_listener
         self.create_sensors_callback = None
-        self.data: dict[str, CombustionProbeData] = {}
+        self.create_binary_sensors_callback = None
+        self.data = {}
         self._listeners = []
+        self._last_notify: dict[str, float] = {}
+        self._failed_devices: set[str] = set()
 
     def init_sensor_platform(self, create_sensors_callback):
         """Initialize sensor platform."""
@@ -35,25 +43,50 @@ class ProbeManager:
     def create_update_callback(self):
         """Create callback for handling updates."""
         @callback
-        def update(probe_data: CombustionProbeData):
-            """Handle updated data from predictive probe."""
-            if probe_data.serial_number not in self.data:
-                _LOGGER.debug("Adding sensors for new device [%s]", probe_data.serial_number)
-                self.create_sensors_callback(self, probe_data)
-                self.create_binary_sensors_callback(self, probe_data)
+        def update(device_data):
+            """Handle updated data from a Combustion device."""
+            serial = device_data.serial_number
+            if serial in self._failed_devices:
+                return
 
-            self.data[probe_data.serial_number] = probe_data
+            is_new = serial not in self.data
+            self.data[serial] = device_data
 
-            _LOGGER.debug("Notifying listeners of new data for [%s]", probe_data.serial_number)
+            if is_new:
+                _LOGGER.debug("Adding sensors for new device [%s]", serial)
+                try:
+                    self.create_sensors_callback(self, device_data)
+                    self.create_binary_sensors_callback(self, device_data)
+                except Exception:  # noqa: BLE001
+                    # Never retry a failing device on every advertisement; that
+                    # creates an unbounded stream of duplicate entities and log spam.
+                    self._failed_devices.add(serial)
+                    _LOGGER.exception("Failed to create entities for device [%s]; ignoring this device", serial)
+                    return
+
+            now = time.monotonic()
+            if not is_new and now - self._last_notify.get(serial, 0.0) < MIN_NOTIFY_INTERVAL_SECONDS:
+                return
+            self._last_notify[serial] = now
+
             for listener in self._listeners:
                 listener()
 
         return update
 
     def add_update_listener(self, listener):
-        """Add listener to be notified of probe updates."""
+        """Add listener to be notified of probe updates.
+
+        Returns a callable that removes the listener again.
+        """
         self._listeners.append(listener)
 
-    def probe_data(self, serial_number: str) -> CombustionProbeData:
-        """Probe data for provided serial number."""
+        def _remove_listener():
+            if listener in self._listeners:
+                self._listeners.remove(listener)
+
+        return _remove_listener
+
+    def probe_data(self, serial_number: str):
+        """Device data for provided serial number."""
         return self.data[serial_number]
