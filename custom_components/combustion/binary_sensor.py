@@ -60,7 +60,8 @@ def _create_binary_sensors(probe_manager: ProbeManager, device_data):
         ]
 
     return [
-        CombustionBatterySensor(probe_manager, device_data)
+        CombustionBatterySensor(probe_manager, device_data),
+        CombustionProbeOverheatingSensor(probe_manager, device_data),
     ]
 
 
@@ -122,6 +123,35 @@ class CombustionBatterySensor(BaseCombustionBinarySensor):
         """Return true if the battery is low."""
         data = self._device_data()
         return None if data is None else not data.battery_ok
+
+
+class CombustionProbeOverheatingSensor(BaseCombustionBinarySensor):
+    """Whether any of the probe's thermistors is overheating."""
+
+    def __init__(self, probe_manager: ProbeManager, device_data) -> None:
+        """Initialize."""
+        super().__init__(probe_manager, device_data)
+        self._attr_unique_id = f'{device_data.serial_number}--overheating'
+        self.entity_description = GAUGE_OVERHEATING_DESCRIPTION
+
+    @property
+    def name(self):
+        """Sensor name."""
+        return 'Overheating'
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return true if any thermistor is overheating."""
+        data = self._device_data()
+        return None if data is None else data.overheating
+
+    @property
+    def extra_state_attributes(self):
+        """List of overheating thermistors."""
+        data = self._device_data()
+        if data is None:
+            return None
+        return {'overheating_sensors': data.overheating_sensor_numbers}
 
 
 class CombustionGaugeSensorPresentSensor(BaseCombustionBinarySensor):

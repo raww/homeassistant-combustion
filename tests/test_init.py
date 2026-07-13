@@ -52,11 +52,11 @@ async def test_entity_creation(hass: HomeAssistant):
     disabled_sensors = [e for e in sensors if e.disabled is True]
     binary_sensors = [e for e in entities if e.domain == 'binary_sensor']
 
-    assert len(entities) == 14
-    assert len(sensors) == 13
+    assert len(entities) == 16
+    assert len(sensors) == 14
     # 9 disabled by default: 8 temperature sensors, and 1 RSSI sensor
     assert len(disabled_sensors) == 9
-    assert len(binary_sensors) == 1
+    assert len(binary_sensors) == 2
 
 
 @pytest.mark.asyncio
@@ -84,7 +84,7 @@ async def test_entity_creation_non_connectable(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     entities = entity_registry.async_entries_for_config_entry(er, entry.entry_id)
-    assert len(entities) == 14
+    assert len(entities) == 16
 
 
 def _booster_bits() -> bytes:
@@ -399,3 +399,50 @@ async def test_instant_read_sensor(hass: HomeAssistant):
         assert float(hass.states.get(instant_id).state) == 85.0
         # Normal-mode readings must be preserved.
         assert float(hass.states.get(core_id).state) == 25.0
+
+
+@pytest.mark.asyncio
+async def test_mode_and_overheating_sensors(hass: HomeAssistant):
+    """Mode diagnostic sensor and overheating binary sensor reflect the advert."""
+    import time as real_time
+    from unittest.mock import patch
+
+    mock_entry = MockConfigEntry(
+        unique_id="test_mode_overheat",
+        domain=DOMAIN,
+        version=1,
+        data={},
+        title="Meatnet",
+    )
+
+    await _setup_config_entry(hass, mock_entry)
+
+    normal = create_advertisement(create_combustion_bits())
+    inject_bt_advertisement(hass, normal)
+    await hass.async_block_till_done()
+    inject_bt_advertisement(hass, normal)
+    await hass.async_block_till_done()
+
+    er = entity_registry.async_get(hass)
+    mode_id = next(e.entity_id for e in er.entities.values() if (e.unique_id or '').endswith('--mode'))
+    overheat_id = next(e.entity_id for e in er.entities.values() if (e.unique_id or '').endswith('--overheating'))
+
+    mode_state = hass.states.get(mode_id)
+    assert mode_state.state == 'normal'
+    assert mode_state.attributes['probe_id'] == 1
+    assert mode_state.attributes['color'] == 'yellow'
+
+    assert hass.states.get(overheat_id).state == 'off'
+
+    # T2 and T8 overheating
+    hot = create_advertisement(create_combustion_bits(overheating_mask=0b10000010))
+    with patch(
+        'custom_components.combustion.probe_manager.time.monotonic',
+        return_value=real_time.monotonic() + 10.0,
+    ):
+        inject_bt_advertisement(hass, hot)
+        await hass.async_block_till_done()
+
+        overheat_state = hass.states.get(overheat_id)
+        assert overheat_state.state == 'on'
+        assert overheat_state.attributes['overheating_sensors'] == [2, 8]

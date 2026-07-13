@@ -77,6 +77,33 @@ class CombustionProbeData:
         return self.advertising_data.mode_id.mode
 
     @property
+    def mode_name(self) -> str:
+        """Probe mode as a display string."""
+        return {
+            ProbeMode.normal: 'normal',
+            ProbeMode.instantRead: 'instant_read',
+            ProbeMode.error: 'error',
+            ProbeMode.reserved: 'reserved',
+        }.get(self.mode, 'unknown')
+
+    @property
+    def color_name(self) -> str:
+        """Probe silicone ring color per the BLE spec (0=yellow, 1=grey)."""
+        raw = self.advertising_data.mode_id.color.value
+        return {0: 'yellow', 1: 'grey'}.get(raw, f'color {raw + 1}')
+
+    @property
+    def overheating(self) -> bool:
+        """Whether any thermistor is overheating."""
+        return self.advertising_data.overheating_mask != 0
+
+    @property
+    def overheating_sensor_numbers(self) -> list[int]:
+        """1-based thermistor numbers currently overheating (T1..T8)."""
+        mask = self.advertising_data.overheating_mask
+        return [i + 1 for i in range(8) if mask & (1 << i)]
+
+    @property
     def battery_ok(self) -> bool:
         """Battery state."""
         return self.advertising_data.battery_status_virtual_sensors.battery_status == BatteryStatus.OK

@@ -11,7 +11,11 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import SIGNAL_STRENGTH_DECIBELS_MILLIWATT, UnitOfTemperature
+from homeassistant.const import (
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    EntityCategory,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityPlatformState
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -96,7 +100,8 @@ def _create_temperature_sensors(probe_manager: ProbeManager, probe_data: Combust
 
 def _create_diagnostic_sensors(probe_manager: ProbeManager, probe_data: CombustionProbeData):
     sensors: list[CombustionEntity] = [
-        CombustionRSSISensor(probe_manager, probe_data)
+        CombustionRSSISensor(probe_manager, probe_data),
+        CombustionModeSensor(probe_manager, probe_data),
     ]
 
     return sensors
@@ -160,6 +165,59 @@ class CombustionGaugeTemperatureSensor(CombustionEntity, SensorEntity):
         except Exception as ex:
             _LOGGER.debug("Error getting gauge temperature for native_value: %s", ex)
             return None
+
+MODE_SENSOR_ENTITY_DESCRIPTION = SensorEntityDescription(
+    key="probe_mode",
+    device_class=SensorDeviceClass.ENUM,
+    options=['normal', 'instant_read', 'error', 'reserved', 'unknown'],
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+
+class CombustionModeSensor(CombustionEntity, SensorEntity):
+    """Probe mode diagnostic sensor (normal / instant read / error)."""
+
+    def __init__(self, probe_manager: ProbeManager, probe_data: CombustionProbeData) -> None:
+        """Initialize."""
+        super().__init__(probe_data.serial_number)
+        self.device_serial_number = probe_data.serial_number
+        self.probe_manager = probe_manager
+        self._attr_has_entity_name = True
+        self._attr_unique_id = f'{probe_data.serial_number}--mode'
+        self.entity_description = MODE_SENSOR_ENTITY_DESCRIPTION
+
+    @property
+    def name(self):
+        """Sensor name."""
+        return 'Mode'
+
+    @callback
+    def on_update(self):
+        """Process probe updates."""
+        if self._platform_state == EntityPlatformState.ADDED:
+            self.async_schedule_update_ha_state()
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the probe mode."""
+        try:
+            return self.probe_manager.probe_data(self.device_serial_number).mode_name
+        except Exception as ex:
+            _LOGGER.debug("Error getting mode for native_value: %s", ex)
+            return None
+
+    @property
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        """Probe identity attributes."""
+        try:
+            data = self.probe_manager.probe_data(self.device_serial_number)
+            return {
+                'probe_id': data.probe_id,
+                'color': data.color_name,
+            }
+        except Exception:
+            return None
+
 
 class CombustionRSSISensor(CombustionEntity, SensorEntity):
     """RSSI diagnostic sensor."""
