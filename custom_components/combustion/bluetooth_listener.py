@@ -31,7 +31,7 @@ class BluetoothListener:
             bluetooth.async_register_callback(
                 self.hass,
                 self._bt_callback,
-                bluetooth.BluetoothCallbackMatcher(manufacturer_id=BT_MANUFACTURER_ID),
+                bluetooth.BluetoothCallbackMatcher(manufacturer_id=BT_MANUFACTURER_ID, connectable=False),
                 bluetooth.BluetoothScanningMode.ACTIVE
             )
         )
