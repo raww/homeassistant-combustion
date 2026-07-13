@@ -3,6 +3,8 @@
  * 2nd-generation WiFi Display: yellow housing, segmented LCD.
  *
  * Works for Predictive Probes and the Giant Grill Gauge (auto-detected).
+ * Tap the LCD to open the temperature's details, including Home Assistant's
+ * built-in history graph.
  *
  * Usage (any ONE of these is enough):
  *   type: custom:combustion-card
@@ -12,8 +14,6 @@
  *
  * Options:
  *   name: brisket               # label shown on the LCD (probes show "1/brisket")
- *   view: digits | plot         # initial view; the graph button flips it
- *   hours: 1                    # plot window in hours
  *   entities: { ... }           # per-entity overrides (core, ambient, instant,
  *                               #   cooking, inserted, battery, mode,
  *                               #   temperature, sensor_connected, overheating,
@@ -53,9 +53,6 @@ class CombustionCard extends HTMLElement {
 
     this._config = config;
     this._isGauge = config.kind ? config.kind === 'gauge' : !PROBE_SERIAL_RE.test(serial);
-    this._plotHours = Number(config.hours) || 1;
-    if (this._view === undefined) this._view = config.view === 'plot' ? 'plot' : 'digits';
-
     const base = (this._isGauge ? 'grill_gauge_' : 'predictive_thermometer_') + serial;
     const defaults = this._isGauge ? {
       core: 'sensor.' + base + '_temperature',
@@ -77,8 +74,6 @@ class CombustionCard extends HTMLElement {
     if (overrides.temperature && this._isGauge) overrides.core = overrides.temperature;
     this._entities = Object.assign(defaults, overrides);
 
-    this._history = null;
-    this._historyFetchedAt = 0;
     if (this.shadowRoot) { this.shadowRoot.innerHTML = ''; this._render(this.shadowRoot); }
   }
 
@@ -222,10 +217,6 @@ class CombustionCard extends HTMLElement {
         .sub .unit { font-size: 10px; font-weight: 800; margin-left: 5px; color: var(--lcd-ink); }
         .sub.right { text-align: right; }
         .sub.right .value-row { justify-content: flex-end; }
-        .plot { display: none; margin: 6px 0 2px; }
-        .plot canvas { display: block; width: 100%; height: 148px; }
-        .lcd.plotting .main, .lcd.plotting .subrow { display: none; }
-        .lcd.plotting .plot { display: block; }
         .buttons {
           display: flex; justify-content: center; gap: 10px;
           margin-top: 13px;
@@ -255,9 +246,6 @@ class CombustionCard extends HTMLElement {
         .chip.nosensor.on { background: var(--accent-red); }
         .chip.battery { display: none; }
         .chip.battery.on { display: inline-flex; background: var(--accent-red); color: #fff; }
-        button.chip.toggle { cursor: pointer; }
-        button.chip.toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-        button.chip.toggle.on { background: var(--ink); color: #fff; }
         @keyframes pulse { 50% { opacity: .45; } }
         @media (prefers-reduced-motion: reduce) {
           .chip.cooking.on .dot { animation: none; }
@@ -265,7 +253,7 @@ class CombustionCard extends HTMLElement {
         }
       </style>
       <div class="housing">
-        <div class="lcd" id="lcd" role="button" tabindex="0" aria-label="Open details">
+        <div class="lcd" id="lcd" role="button" tabindex="0" aria-label="Open temperature details and history">
           <div class="lcd-top">
             <span class="probe-label" id="label"></span>
             <span class="glyphs">
@@ -287,23 +275,15 @@ class CombustionCard extends HTMLElement {
             <span class="unit" id="core-unit">&deg;C</span>
           </div>
           <div class="subrow">${this._isGauge ? gaugeSubs : probeSubs}</div>
-          <div class="plot"><canvas id="plot-canvas"></canvas></div>
         </div>
         <div class="buttons">
           ${this._isGauge ? gaugeChips : probeChips}
-          <button class="chip toggle" id="chip-view" aria-pressed="false">graph</button>
         </div>
       </div>
     `;
     root.getElementById('lcd').addEventListener('click', () => this._moreInfo());
     root.getElementById('lcd').addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter' || ev.key === ' ') this._moreInfo();
-    });
-    root.getElementById('chip-view').addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      this._view = this._view === 'plot' ? 'digits' : 'plot';
-      this._history = null;
-      this._update();
     });
   }
 
@@ -352,16 +332,7 @@ class CombustionCard extends HTMLElement {
     const lcd = this.shadowRoot.getElementById('lcd');
 
     lcd.classList.toggle('dead', !available);
-    const plotting = this._view === 'plot' && available;
-    lcd.classList.toggle('plotting', plotting);
-    const viewBtn = this.shadowRoot.getElementById('chip-view');
-    viewBtn.classList.toggle('on', plotting);
-    viewBtn.setAttribute('aria-pressed', plotting ? 'true' : 'false');
-    viewBtn.textContent = plotting ? 'digits' : 'graph';
-
-    this.shadowRoot.getElementById('label').textContent = plotting
-      ? this._probeLabel(available) + ' · last ' + (this._plotHours === 1 ? 'hour' : this._plotHours + ' h')
-      : this._probeLabel(available);
+    this.shadowRoot.getElementById('label').textContent = this._probeLabel(available);
 
     this._setSeg('core', available ? this._fmt(this._num('core'), 1) : '', 'core-unit', unit);
     if (this._isGauge) {
@@ -399,123 +370,8 @@ class CombustionCard extends HTMLElement {
       setChip('chip-b', 'inserted');
     }
     setChip('chip-batt', 'battery');
-
-    if (plotting) this._ensureHistory();
   }
 
-  async _ensureHistory() {
-    const now = Date.now();
-    if (this._history && now - this._historyFetchedAt < 30000) { this._drawPlot(); return; }
-    if (this._historyPending) return;
-    this._historyPending = true;
-    try {
-      const end = new Date();
-      const start = new Date(end.getTime() - this._plotHours * 3600 * 1000);
-      const ids = [this._entities.core, this._entities.ambient].filter(Boolean).join(',');
-      const path = 'history/period/' + start.toISOString()
-        + '?filter_entity_id=' + encodeURIComponent(ids)
-        + '&end_time=' + encodeURIComponent(end.toISOString())
-        + '&minimal_response&no_attributes';
-      const res = await this._hass.callApi('GET', path);
-      const series = {};
-      for (const arr of res || []) {
-        if (!arr || !arr.length) continue;
-        const id = arr[0].entity_id;
-        series[id] = arr
-          .map((p) => ({ t: new Date(p.last_changed || p.last_updated).getTime(), v: Number(p.state) }))
-          .filter((p) => Number.isFinite(p.v));
-      }
-      this._history = { start: start.getTime(), end: end.getTime(), series };
-      this._historyFetchedAt = now;
-    } catch (err) {
-      this._history = { start: 0, end: 0, series: {} };
-    } finally {
-      this._historyPending = false;
-    }
-    this._drawPlot();
-  }
-
-  _drawPlot() {
-    const canvas = this.shadowRoot.getElementById('plot-canvas');
-    if (!canvas || !this._history) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth || 300;
-    const h = canvas.clientHeight || 148;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, w, h);
-
-    const ink = '#22251E';
-    const soft = 'rgba(34,37,30,.30)';
-    const faint = 'rgba(34,37,30,.12)';
-
-    const coreSeries = this._history.series[this._entities.core] || [];
-    const ambientSeries = (!this._isGauge && this._history.series[this._entities.ambient]) || [];
-    const all = coreSeries.concat(ambientSeries);
-    if (!all.length) {
-      ctx.fillStyle = soft;
-      ctx.font = '700 12px "Avenir Next", system-ui, sans-serif';
-      ctx.fillText('no history yet', 8, h / 2);
-      return;
-    }
-
-    let min = Math.min(...all.map((p) => p.v));
-    let max = Math.max(...all.map((p) => p.v));
-    if (max - min < 4) { const mid = (max + min) / 2; min = mid - 2; max = mid + 2; }
-    const pad = (max - min) * 0.12;
-    min -= pad; max += pad;
-
-    const { start, end } = this._history;
-    const padL = 4, padR = 40, padT = 8, padB = 6;
-    const x = (t) => padL + ((t - start) / (end - start)) * (w - padL - padR);
-    const y = (v) => padT + (1 - (v - min) / (max - min)) * (h - padT - padB);
-
-    // faint horizontal grid, like LCD raster lines
-    ctx.strokeStyle = faint;
-    ctx.lineWidth = 1;
-    for (let i = 1; i < 4; i++) {
-      const gy = padT + (i / 4) * (h - padT - padB);
-      ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w - padR, gy); ctx.stroke();
-    }
-
-    const drawStepped = (series, color, width) => {
-      if (!series.length) return;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = width;
-      ctx.beginPath();
-      let px = x(Math.max(series[0].t, start));
-      let py = y(series[0].v);
-      ctx.moveTo(px, py);
-      for (const p of series) {
-        const nx = Math.max(x(p.t), padL);
-        const ny = y(p.v);
-        ctx.lineTo(nx, py);   // horizontal then vertical: chunky LCD steps
-        ctx.lineTo(nx, ny);
-        py = ny;
-      }
-      ctx.lineTo(w - padR, py);
-      ctx.stroke();
-      // endpoint marker
-      ctx.fillStyle = color;
-      ctx.fillRect(w - padR - 2, py - 2.5, 5, 5);
-      return py;
-    };
-
-    drawStepped(ambientSeries, soft, 2);
-    const coreY = drawStepped(coreSeries, ink, 3);
-
-    // current core value in small 7-seg at the line's end
-    const last = coreSeries.length ? coreSeries[coreSeries.length - 1].v : null;
-    if (last !== null) {
-      ctx.fillStyle = ink;
-      ctx.font = 'bold 16px CombustionLCD, monospace';
-      ctx.textBaseline = 'middle';
-      const ty = Math.min(Math.max(coreY ?? h / 2, padT + 8), h - padB - 8);
-      ctx.fillText(last.toFixed(0), w - padR + 6, ty);
-    }
-  }
 }
 
 customElements.define('combustion-card', CombustionCard);

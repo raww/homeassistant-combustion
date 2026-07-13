@@ -61,7 +61,7 @@ Optional settings live under **Settings → Devices & Services → Combustion �
 
 ## Dashboard card
 
-The integration bundles a Lovelace card styled after the Combustion WiFi Display — yellow housing, segmented LCD, and a **graph** button that flips the LCD into a temperature history chart. It registers itself automatically; no resource setup needed.
+The integration bundles a Lovelace card styled after the Combustion WiFi Display — yellow housing, segmented LCD. It registers itself automatically; no resource setup needed. Tap the LCD to open the temperature's details, including Home Assistant's built-in history graph.
 
 ```yaml
 type: custom:combustion-card
@@ -76,7 +76,7 @@ type: custom:combustion-card
 entity: sensor.predictive_thermometer_10007dc0_core_temperature
 ```
 
-Probes show core temperature with ambient and instant-read sub-panels plus cooking / probe-in / battery chips. Gauges show the gauge temperature with low/high alarm setpoints and alarm / no-sensor / battery chips. `view: plot` starts in the graph view; `hours: 3` widens the history window.
+Probes show core temperature with ambient and instant-read sub-panels plus cooking / probe-in / battery chips. Gauges show the gauge temperature with low/high alarm setpoints and alarm / no-sensor / battery chips.
 
 ## Supported devices
 
