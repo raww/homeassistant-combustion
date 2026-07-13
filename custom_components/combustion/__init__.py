@@ -9,7 +9,7 @@ from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
 
 from custom_components.combustion.bluetooth_listener import BluetoothListener
@@ -54,11 +54,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # When a device stops advertising, no bluetooth callback fires to push the
     # entities to unavailable; re-notify periodically so availability updates.
+    # The @callback decoration is essential: without it Home Assistant runs
+    # the job in a thread-pool executor, and the resulting state writes from
+    # outside the event loop are rejected (and unsafe).
+    @callback
+    def _async_availability_tick(_now) -> None:
+        probe_manager.notify_listeners()
+
     availability_check_interval = timedelta(seconds=max(5.0, float(availability_timeout) / 3))
     entry.async_on_unload(
         async_track_time_interval(
             hass,
-            lambda _now: probe_manager.notify_listeners(),
+            _async_availability_tick,
             availability_check_interval,
         )
     )
@@ -74,6 +81,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload config entry."""
-    await async_unload_entry(hass, entry)
-    await async_setup_entry(hass, entry)
+    """Reload config entry.
+
+    Must go through hass.config_entries so the entry's async_on_unload
+    callbacks run (bluetooth callback, availability timer, update listener).
+    Calling async_unload_entry/async_setup_entry directly skips them, leaking
+    one extra bluetooth callback, timer and update listener per reload — the
+    update listeners then multiply on every entry update until advertisement
+    processing swamps the event loop.
+    """
+    await hass.config_entries.async_reload(entry.entry_id)

@@ -580,6 +580,21 @@ async def test_options_flow(hass: HomeAssistant):
     assert manager.availability_timeout_seconds == 30.0
     assert manager.min_notify_interval_seconds == 2.5
 
+    # Regression: the reload must go through hass.config_entries so the old
+    # update listener is disposed. The buggy manual-reload path leaked one
+    # listener (plus one bluetooth callback and timer) per reload, and the
+    # listeners then multiplied exponentially on every entry update.
+    assert len(entry.update_listeners) == 1
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result['flow_id'],
+        user_input={'availability_timeout': 45, 'update_throttle': 1.0},
+    )
+    await hass.async_block_till_done()
+    assert len(entry.update_listeners) == 1
+    assert hass.data[DOMAIN].availability_timeout_seconds == 45.0
+
 
 @pytest.mark.asyncio
 async def test_probe_inserted_detects_fridge_cold_meat(hass: HomeAssistant):
