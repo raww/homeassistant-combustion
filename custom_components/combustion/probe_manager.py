@@ -5,6 +5,7 @@ import time
 from homeassistant.core import callback
 
 from custom_components.combustion.bluetooth_listener import BluetoothListener
+from custom_components.combustion.combustion_ble.mode_id import ProbeMode
 from custom_components.combustion.const import LOGGER
 
 _LOGGER = LOGGER.getChild('probe_manager')
@@ -26,6 +27,10 @@ AVAILABILITY_TIMEOUT_SECONDS = 90.0
 # been silent for this long (e.g. it is out of range of every proxy).
 DIRECT_DATA_PREFERENCE_SECONDS = 5.0
 
+# An instant read value older than this is no longer shown; the probe has
+# left instant-read mode or gone silent.
+INSTANT_READ_STALE_SECONDS = 15.0
+
 
 class ProbeManager:
     """Manage discovered Combustion devices."""
@@ -40,6 +45,7 @@ class ProbeManager:
         self._last_notify: dict[str, float] = {}
         self._last_seen: dict[str, float] = {}
         self._last_direct_seen: dict[str, float] = {}
+        self._instant_read: dict[str, tuple[float, float]] = {}
         self._failed_devices: set[str] = set()
 
     def init_sensor_platform(self, create_sensors_callback):
@@ -73,8 +79,16 @@ class ProbeManager:
                 if last_direct is not None and now - last_direct < DIRECT_DATA_PREFERENCE_SECONDS:
                     return
 
+            # In instant-read mode the first thermistor carries the instant
+            # read value and the remaining readings are not meaningful, so the
+            # last normal-mode data is kept for the regular sensors.
+            is_instant_read = getattr(device_data, 'mode', None) == ProbeMode.instantRead
+            if is_instant_read:
+                self._instant_read[serial] = (device_data.temperature_data[0], now)
+
             is_new = serial not in self.data
-            self.data[serial] = device_data
+            if not is_instant_read or is_new:
+                self.data[serial] = device_data
 
             if is_new:
                 _LOGGER.debug("Adding sensors for new device [%s]", serial)
@@ -100,6 +114,16 @@ class ProbeManager:
         """Notify all listeners that device state may have changed."""
         for listener in list(self._listeners):
             listener()
+
+    def instant_read_temperature(self, serial_number: str):
+        """Most recent instant read temperature, or None when stale/absent."""
+        entry = self._instant_read.get(serial_number)
+        if entry is None:
+            return None
+        value, seen_at = entry
+        if time.monotonic() - seen_at > INSTANT_READ_STALE_SECONDS:
+            return None
+        return value
 
     def device_available(self, serial_number: str) -> bool:
         """Whether the device has advertised recently."""

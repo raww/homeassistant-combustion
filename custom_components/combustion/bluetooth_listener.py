@@ -11,7 +11,6 @@ from custom_components.combustion.combustion_ble.combustion_probe_data import (
     CombustionProbeData,
 )
 from custom_components.combustion.combustion_ble.gauge_data import CombustionGaugeData
-from custom_components.combustion.combustion_ble.mode_id import ProbeMode
 from custom_components.combustion.const import BT_MANUFACTURER_ID, LOGGER
 
 _LOGGER = LOGGER.getChild('bluetooth-listener')
@@ -85,9 +84,6 @@ class BluetoothListener:
             probe_data = CombustionProbeData.from_advertisement(service_info)
             if probe_data is None or not probe_data.valid:
                 _LOGGER.debug("Discarding invalid advertisement from [%s]", service_info.address)
-                return None
-            if probe_data.mode == ProbeMode.instantRead:
-                _LOGGER.debug("Discarding instant_read data from [%s]", service_info.address)
                 return None
             return probe_data
 

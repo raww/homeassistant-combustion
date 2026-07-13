@@ -52,8 +52,8 @@ async def test_entity_creation(hass: HomeAssistant):
     disabled_sensors = [e for e in sensors if e.disabled is True]
     binary_sensors = [e for e in entities if e.domain == 'binary_sensor']
 
-    assert len(entities) == 13
-    assert len(sensors) == 12
+    assert len(entities) == 14
+    assert len(sensors) == 13
     # 9 disabled by default: 8 temperature sensors, and 1 RSSI sensor
     assert len(disabled_sensors) == 9
     assert len(binary_sensors) == 1
@@ -84,7 +84,7 @@ async def test_entity_creation_non_connectable(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     entities = entity_registry.async_entries_for_config_entry(er, entry.entry_id)
-    assert len(entities) == 13
+    assert len(entities) == 14
 
 
 def _booster_bits() -> bytes:
@@ -350,3 +350,52 @@ async def test_direct_data_preferred_over_repeated(hass: HomeAssistant):
         monotonic.return_value = 107.0
         update(Data('PROBE', 'direct-2'))
         assert manager.probe_data('abc123').tag == 'direct-2'
+
+
+@pytest.mark.asyncio
+async def test_instant_read_sensor(hass: HomeAssistant):
+    """Instant-read adverts feed the instant read sensor without clobbering normal data."""
+    import time as real_time
+    from unittest.mock import patch
+
+    from custom_components.combustion.combustion_ble.mode_id import ProbeMode
+
+    mock_entry = MockConfigEntry(
+        unique_id="test_instant_read",
+        domain=DOMAIN,
+        version=1,
+        data={},
+        title="Meatnet",
+    )
+
+    await _setup_config_entry(hass, mock_entry)
+
+    normal = create_combustion_bits(temperature_data=[25.0] * 8)
+    # First advert triggers the one-time entry reload; re-inject afterwards.
+    inject_bt_advertisement(hass, create_advertisement(normal))
+    await hass.async_block_till_done()
+    inject_bt_advertisement(hass, create_advertisement(normal))
+    await hass.async_block_till_done()
+
+    er = entity_registry.async_get(hass)
+    instant_id = next(e.entity_id for e in er.entities.values() if (e.unique_id or '').endswith('--sensor--instant-read'))
+    core_id = next(e.entity_id for e in er.entities.values() if (e.unique_id or '').endswith('--sensor--core'))
+
+    assert hass.states.get(instant_id).state == 'unknown'
+    assert float(hass.states.get(core_id).state) == 25.0
+
+    instant = create_combustion_bits(
+        mode=ProbeMode.instantRead.value,
+        temperature_data=[85.0] + [25.0] * 7,
+    )
+    # Advance past the notify throttle window for this device.
+    with patch(
+        'custom_components.combustion.probe_manager.time.monotonic',
+        return_value=real_time.monotonic() + 10.0,
+    ):
+        inject_bt_advertisement(hass, create_advertisement(instant))
+        await hass.async_block_till_done()
+
+        assert float(hass.states.get(instant_id).state) == 85.0
+        # Normal-mode readings must be preserved.
+        assert float(hass.states.get(core_id).state) == 25.0

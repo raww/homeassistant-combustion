@@ -86,7 +86,8 @@ def _create_temperature_sensors(probe_manager: ProbeManager, probe_data: Combust
     sensors: list[BaseCombustionTemperatureSensor] = [
         CombustionVirtualCoreSensor(probe_manager, probe_data),
         CombustionVirtualSurfaceSensor(probe_manager, probe_data),
-        CombustionVirtualAmbientSensor(probe_manager, probe_data)
+        CombustionVirtualAmbientSensor(probe_manager, probe_data),
+        CombustionInstantReadSensor(probe_manager, probe_data),
     ]
     for i in range(len(probe_data.temperature_data)):
         sensors.append(CombustionTemperatureSensor(probe_manager, probe_data, i + 1))
@@ -244,6 +245,30 @@ class CombustionTemperatureSensor(BaseCombustionTemperatureSensor):
         except Exception as ex:
             _LOGGER.debug("Error getting thermistor temp for native_value: %s", ex)
             return None
+
+class CombustionInstantReadSensor(BaseCombustionTemperatureSensor):
+    """Instant read temperature sensor.
+
+    Only reports a value while the probe is in instant-read mode; values go
+    stale (None) shortly after the probe returns to normal mode.
+    """
+
+    def __init__(self, probe_manager: ProbeManager, probe_data: CombustionProbeData) -> None:
+        """Initialize."""
+        super().__init__(probe_manager, probe_data)
+        self._attr_unique_id = f'{probe_data.serial_number}--sensor--instant-read'
+        self.entity_description = VIRTUAL_TEMPERATURE_SENSOR_DESCRIPTION
+
+    @property
+    def name(self):
+        """Sensor name."""
+        return 'Instant Read Temperature'
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the instant read temperature, or None when not instant reading."""
+        return self.probe_manager.instant_read_temperature(self.device_serial_number)
+
 
 class CombustionVirtualCoreSensor(BaseCombustionTemperatureSensor):
     """Combustion virtual core sensor class."""
