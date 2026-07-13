@@ -1,6 +1,10 @@
 {
   "domain": "combustion",
   "name": "Combustion",
+  "after_dependencies": [
+    "http",
+    "frontend"
+  ],
   "bluetooth": [
     {
       "manufacturer_id": 2503,
@@ -12,10 +16,6 @@
     "@legrego"
   ],
   "config_flow": true,
-  "after_dependencies": [
-    "http",
-    "frontend"
-  ],
   "dependencies": [
     "bluetooth_adapters"
   ],
