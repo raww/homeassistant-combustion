@@ -5,6 +5,11 @@
                 "description": "Do you want to set up {name}?"
             }
         },
+        "abort": {
+            "not_supported": "This Combustion device does not broadcast usable data.",
+            "updated_entry": "This device has been added to the existing Combustion Meatnet.",
+            "already_configured": "The Combustion Meatnet is already configured."
+        },
         "error": {
             "unknown": "Unknown error occurred."
         }

@@ -8,16 +8,17 @@
     }
   ],
   "codeowners": [
+    "@raww",
     "@legrego"
   ],
   "config_flow": true,
   "dependencies": [
     "bluetooth_adapters"
   ],
-  "documentation": "https://github.com/legrego/homeassistant-combustion",
+  "documentation": "https://github.com/raww/homeassistant-combustion",
   "integration_type": "hub",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/legrego/homeassistant-combustion/issues",
+  "issue_tracker": "https://github.com/raww/homeassistant-combustion/issues",
   "requirements": [],
   "version": "0.0.0"
 }
