@@ -8,6 +8,10 @@ Integrate [Combustion](https://combustion.inc) predictive probes and gauges into
 
 > **Note:** This is a maintained fork of [legrego/homeassistant-combustion](https://github.com/legrego/homeassistant-combustion) with fixes for Home Assistant 2026.3+ and additional device support. See [What's different in this fork](#whats-different-in-this-fork).
 
+<p align="center">
+  <img src="docs/images/card-probe-cooking.png" width="420" alt="Bundled dashboard card showing a probe mid-cook: core temperature 58.6°C on a segmented LCD, ambient 182°C, cooking and probe-in chips lit">
+</p>
+
 **This integration will set up the following platforms.**
 
 Platform | Description
@@ -62,6 +66,10 @@ Optional settings live under **Settings → Devices & Services → Combustion �
 ## Dashboard card
 
 The integration bundles a Lovelace card styled after the Combustion WiFi Display — yellow housing, segmented LCD. It registers itself automatically; no resource setup needed. Tap the LCD to open the temperature's details, including Home Assistant's built-in history graph.
+
+| Giant Grill Gauge | Probe in cold meat | Probe off |
+| :---: | :---: | :---: |
+| <img src="docs/images/card-gauge.png" width="260" alt="Gauge card: 121.4°C with high alarm set to 110°C and the alarm chip lit"> | <img src="docs/images/card-probe-inserted.png" width="260" alt="Probe card: 4.8°C core, 21°C ambient, probe-in chip lit"> | <img src="docs/images/card-offline.png" width="260" alt="Offline card: blank ghosted LCD with greyed glyphs"> |
 
 ```yaml
 type: custom:combustion-card
