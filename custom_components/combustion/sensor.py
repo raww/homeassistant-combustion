@@ -109,6 +109,7 @@ def _create_diagnostic_sensors(probe_manager: ProbeManager, probe_data: Combusti
 def _create_gauge_sensors(probe_manager: ProbeManager, gauge_data):
     sensors: list[CombustionEntity] = [
         CombustionGaugeTemperatureSensor(probe_manager, gauge_data),
+        CombustionGaugeZoneSensor(probe_manager, gauge_data),
         CombustionRSSISensor(probe_manager, gauge_data),
     ]
 
@@ -165,6 +166,51 @@ class CombustionGaugeTemperatureSensor(CombustionEntity, SensorEntity):
         except Exception as ex:
             _LOGGER.debug("Error getting gauge temperature for native_value: %s", ex)
             return None
+
+GAUGE_ZONE_SENSOR_DESCRIPTION = SensorEntityDescription(
+    key="gauge_zone",
+    device_class=SensorDeviceClass.ENUM,
+    options=['off', 'smoke', 'bbq', 'low_grill', 'med', 'high', 'insane'],
+)
+
+
+class CombustionGaugeZoneSensor(CombustionEntity, SensorEntity):
+    """Cooking zone of a Combustion Gauge (SMOKE..INSANE)."""
+
+    def __init__(self, probe_manager: ProbeManager, gauge_data) -> None:
+        """Initialize."""
+        super().__init__(gauge_data.serial_number, device_name='Grill Gauge')
+        self.device_serial_number = gauge_data.serial_number
+        self.probe_manager = probe_manager
+        self._attr_has_entity_name = True
+        self._attr_unique_id = f'{gauge_data.serial_number}--gauge-zone'
+        self.entity_description = GAUGE_ZONE_SENSOR_DESCRIPTION
+
+    @property
+    def should_poll(self) -> bool:
+        """Do not poll for updates."""
+        return False
+
+    @property
+    def name(self):
+        """Sensor name."""
+        return 'Zone'
+
+    @callback
+    def on_update(self):
+        """Process gauge updates."""
+        if self._platform_state == EntityPlatformState.ADDED:
+            self.async_schedule_update_ha_state()
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the current cooking zone."""
+        try:
+            return self.probe_manager.probe_data(self.device_serial_number).grill_zone
+        except Exception as ex:
+            _LOGGER.debug("Error getting gauge zone for native_value: %s", ex)
+            return None
+
 
 MODE_SENSOR_ENTITY_DESCRIPTION = SensorEntityDescription(
     key="probe_mode",

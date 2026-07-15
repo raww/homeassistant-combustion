@@ -1,8 +1,10 @@
 /**
- * Combustion Card — a Lovelace card styled after the Combustion Inc.
- * 2nd-generation WiFi Display: yellow housing, segmented LCD.
+ * Combustion Card — a Lovelace card styled after Combustion Inc. hardware.
  *
- * Works for Predictive Probes and the Giant Grill Gauge (auto-detected).
+ * Predictive Probes render as the square 2nd-gen WiFi Display. The Giant Grill
+ * Gauge renders as the round device with its SMOKE→INSANE temperature dial
+ * (auto-detected; force the square style with `style: square`).
+ *
  * Tap the LCD to open the temperature's details, including Home Assistant's
  * built-in history graph.
  *
@@ -13,11 +15,12 @@
  *   entity: sensor.predictive_thermometer_10007dc0_core_temperature
  *
  * Options:
- *   name: brisket               # label shown on the LCD (probes show "1/brisket")
- *   entities: { ... }           # per-entity overrides (core, ambient, instant,
- *                               #   cooking, inserted, battery, mode,
- *                               #   temperature, sensor_connected, overheating,
- *                               #   high_alarm, low_alarm)
+ *   name: brisket               # label shown on the LCD
+ *   style: square               # force the square face on a gauge
+ *   secondary: 10007dc0         # gauge only: a second reading below the grill
+ *                               #   temp. A probe serial cycles core/surface/
+ *                               #   ambient; an entity id or list cycles those.
+ *   entities: { ... }           # per-entity overrides
  *
  * The DSEG7 Classic font (c) Keshikan (https://www.keshikan.net/fonts-e.html)
  * is embedded under the SIL Open Font License 1.1.
@@ -34,6 +37,38 @@ const DSEG7_B64 = "d09GMgABAAAAABQMAA4AAAAAWgAAABOxAAEAAAAAAAAAAAAAAAAAAAAAAAAAA
 })();
 
 const PROBE_SERIAL_RE = /^[0-9a-f]{8}$/;
+
+// The dial is a 0–1000 °F scale drawn as 31 evenly-spaced ticks. Each zone is
+// a temperature RANGE in °C (tune these freely). The grill-zone sensor in the
+// integration uses the same boundaries — keep the two in sync.
+const GAUGE_MAX_F = 1000;
+const GAUGE_TICKS = 31;
+const GAUGE_ZONES = [
+  { name: 'SMOKE', from: 65, to: 108 },
+  { name: 'BBQ', from: 108, to: 166 },
+  { name: 'LOW GRILL', from: 166, to: 253 },
+  { name: 'MED', from: 253, to: 281 },
+  { name: 'HIGH', from: 281, to: 440 },
+  { name: 'INSANE', from: 440, to: 538 },
+];
+// bold reference ticks nearest each zone boundary
+const GAUGE_BOUNDARY_TICKS = new Set(
+  GAUGE_ZONES.flatMap((z) => [z.from, z.to]).map(
+    (c) => Math.round(((c * 9 / 5 + 32) / GAUGE_MAX_F) * GAUGE_TICKS),
+  ),
+);
+
+const ARC_START_DEG = 135;   // bottom-left
+const ARC_SWEEP_DEG = 270;   // clockwise over the top to bottom-right
+
+function polar(cx, cy, r, deg) {
+  const rad = (deg * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function toCelsius(v, unit) {
+  return (unit && unit.indexOf('F') >= 0) ? (v - 32) * 5 / 9 : v;
+}
 
 class CombustionCard extends HTMLElement {
   static getStubConfig(hass) {
@@ -53,6 +88,8 @@ class CombustionCard extends HTMLElement {
 
     this._config = config;
     this._isGauge = config.kind ? config.kind === 'gauge' : !PROBE_SERIAL_RE.test(serial);
+    this._round = this._isGauge && config.style !== 'square';
+
     const base = (this._isGauge ? 'grill_gauge_' : 'predictive_thermometer_') + serial;
     const defaults = this._isGauge ? {
       core: 'sensor.' + base + '_temperature',
@@ -74,10 +111,30 @@ class CombustionCard extends HTMLElement {
     if (overrides.temperature && this._isGauge) overrides.core = overrides.temperature;
     this._entities = Object.assign(defaults, overrides);
 
+    this._secondary = this._resolveSecondary(config.secondary);
+    this._secondaryIndex = 0;
+
     if (this.shadowRoot) { this.shadowRoot.innerHTML = ''; this._render(this.shadowRoot); }
   }
 
-  getCardSize() { return 4; }
+  _resolveSecondary(sec) {
+    const list = [];
+    const pushProbe = (s) => {
+      const b = 'sensor.predictive_thermometer_' + String(s).toLowerCase();
+      list.push({ entity: b + '_core_temperature', label: 'core' });
+      list.push({ entity: b + '_surface_temperature', label: 'surface' });
+      list.push({ entity: b + '_ambient_temperature', label: 'ambient' });
+    };
+    if (!sec) return list;
+    for (const it of (Array.isArray(sec) ? sec : [sec])) {
+      if (typeof it === 'string' && it.indexOf('.') >= 0) list.push({ entity: it, label: null });
+      else if (typeof it === 'string' && /^[0-9a-z]+$/i.test(it)) pushProbe(it);
+      else if (it && it.entity) list.push({ entity: it.entity, label: it.label || null });
+    }
+    return list;
+  }
+
+  getCardSize() { return this._round ? 5 : 4; }
 
   set hass(hass) {
     this._hass = hass;
@@ -97,7 +154,70 @@ class CombustionCard extends HTMLElement {
     return Number.isFinite(v) ? v : null;
   }
 
+  _fmt(v, decimals) {
+    return v === null ? null : v.toFixed(decimals);
+  }
+
+  _fractionForC(c) {
+    const f = (c * 9 / 5 + 32) / GAUGE_MAX_F;   // 0–1000 °F scale
+    return Math.max(0, Math.min(1, f));
+  }
+
+  _arcPath(cx, cy, r, f0, f1) {
+    if (f1 <= f0) return '';
+    const a = polar(cx, cy, r, ARC_START_DEG + f0 * ARC_SWEEP_DEG);
+    const b = polar(cx, cy, r, ARC_START_DEG + f1 * ARC_SWEEP_DEG);
+    const large = (f1 - f0) * ARC_SWEEP_DEG > 180 ? 1 : 0;
+    return `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+  }
+
   _render(root) {
+    if (this._round) this._renderRound(root);
+    else this._renderFlat(root);
+  }
+
+  _update() {
+    if (!this.shadowRoot || !this._hass) return;
+    if (this._round) this._updateRound();
+    else this._updateFlat();
+  }
+
+  _moreInfo() {
+    const ev = new Event('hass-more-info', { bubbles: true, composed: true });
+    ev.detail = { entityId: this._entities.core };
+    this.dispatchEvent(ev);
+  }
+
+  // ---- shared LCD chrome ----
+
+  _baseStyles() {
+    return `
+      :host {
+        --housing: #F7C544;
+        --housing-deep: #DFA92E;
+        --housing-light: #FFDA6B;
+        --lcd-glass: #C9CEC0;
+        --lcd-ink: #22251E;
+        --lcd-ghost: rgba(34, 37, 30, 0.09);
+        --lcd-soft: rgba(34, 37, 30, 0.55);
+        --ink: #211D17;
+        --accent-red: #C93A2E;
+        display: block;
+      }
+      .seg {
+        font-family: "CombustionLCD", monospace;
+        font-weight: bold;
+        font-variant-numeric: tabular-nums;
+      }
+      .digits { position: relative; display: inline-block; }
+      .ghost { color: var(--lcd-ghost); }
+      .lit { position: absolute; top: 0; right: 0; color: var(--lcd-ink); }
+    `;
+  }
+
+  // ================= SQUARE FACE (probe, or gauge with style: square) =================
+
+  _renderFlat(root) {
     const probeSubs = `
       <div class="sub">
         <div class="label">ambient</div>
@@ -139,18 +259,7 @@ class CombustionCard extends HTMLElement {
 
     root.innerHTML = `
       <style>
-        :host {
-          --housing: #F7C544;
-          --housing-deep: #DFA92E;
-          --housing-light: #FFDA6B;
-          --lcd-glass: #C9CEC0;
-          --lcd-ink: #22251E;
-          --lcd-ghost: rgba(34, 37, 30, 0.09);
-          --lcd-soft: rgba(34, 37, 30, 0.55);
-          --ink: #211D17;
-          --accent-red: #C93A2E;
-          display: block;
-        }
+        ${this._baseStyles()}
         .housing {
           background: linear-gradient(178deg, var(--housing-light) 0%, var(--housing) 22%, var(--housing) 78%, var(--housing-deep) 100%);
           border-radius: 24px;
@@ -161,83 +270,34 @@ class CombustionCard extends HTMLElement {
           user-select: none;
         }
         .lcd {
-          background:
-            radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,.35), rgba(255,255,255,0) 45%),
-            var(--lcd-glass);
+          background: radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,.35), rgba(255,255,255,0) 45%), var(--lcd-glass);
           border-radius: 10px;
           box-shadow: inset 0 2px 8px rgba(0,0,0,.4), inset 0 -1px 2px rgba(255,255,255,.35);
           padding: 12px 16px 14px;
           cursor: pointer;
           color: var(--lcd-ink);
         }
-        .lcd-top {
-          display: flex; justify-content: space-between; align-items: baseline;
-          font-size: 13px; font-weight: 700; letter-spacing: .02em;
-          color: var(--lcd-soft);
-        }
+        .lcd-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; font-weight: 700; letter-spacing: .02em; color: var(--lcd-soft); }
         .lcd-top .probe-label { text-transform: lowercase; }
         .glyphs { display: flex; gap: 7px; align-items: center; }
         .glyphs svg { display: block; }
         .glyphs .off { opacity: .14; }
         .lcd.dead .unit { color: var(--lcd-ghost); }
         .lcd.dead .lcd-top { color: rgba(34,37,30,.28); }
-        .main {
-          position: relative;
-          display: flex; justify-content: center; align-items: baseline;
-          margin: 2px 0 6px;
-          line-height: 1;
-        }
-        .seg {
-          font-family: "CombustionLCD", monospace;
-          font-weight: bold;
-          font-variant-numeric: tabular-nums;
-        }
-        .digits { position: relative; display: inline-block; }
-        .ghost { color: var(--lcd-ghost); }
-        .lit { position: absolute; top: 0; right: 0; color: var(--lcd-ink); }
+        .main { position: relative; display: flex; justify-content: center; align-items: baseline; margin: 2px 0 6px; line-height: 1; }
         .main .seg { font-size: clamp(44px, 15vw, 64px); }
-        .main .unit {
-          font-size: 15px; font-weight: 800; margin-left: 10px;
-          color: var(--lcd-ink);
-          align-self: flex-start; margin-top: 4px;
-        }
-        .subrow {
-          display: flex; justify-content: space-between; gap: 12px;
-          border-top: 1.5px solid rgba(34,37,30,.15);
-          padding-top: 9px;
-        }
+        .main .unit { font-size: 15px; font-weight: 800; margin-left: 10px; color: var(--lcd-ink); align-self: flex-start; margin-top: 4px; }
+        .subrow { display: flex; justify-content: space-between; gap: 12px; border-top: 1.5px solid rgba(34,37,30,.15); padding-top: 9px; }
         .sub { flex: 1; min-width: 0; }
-        .sub .label {
-          font-size: 11.5px; font-weight: 700; letter-spacing: .02em;
-          color: var(--lcd-soft); text-transform: lowercase;
-          margin-bottom: 2px;
-        }
+        .sub .label { font-size: 11.5px; font-weight: 700; letter-spacing: .02em; color: var(--lcd-soft); text-transform: lowercase; margin-bottom: 2px; }
         .sub .value-row { display: flex; align-items: baseline; }
         .sub .seg { font-size: 24px; }
         .sub .unit { font-size: 10px; font-weight: 800; margin-left: 5px; color: var(--lcd-ink); }
         .sub.right { text-align: right; }
         .sub.right .value-row { justify-content: flex-end; }
-        .buttons {
-          display: flex; justify-content: center; gap: 10px;
-          margin-top: 13px;
-        }
-        .chip {
-          display: inline-flex; align-items: center; gap: 7px;
-          padding: 7px 14px;
-          border-radius: 999px;
-          border: none;
-          font: inherit;
-          font-size: 12.5px; font-weight: 700; letter-spacing: .01em;
-          background: var(--housing-deep);
-          box-shadow: inset 0 1px 2px rgba(0,0,0,.22), 0 1px 0 rgba(255,255,255,.35);
-          color: rgba(33,29,23,.55);
-          transition: background .25s ease, color .25s ease;
-        }
-        .chip .dot {
-          width: 7px; height: 7px; border-radius: 50%;
-          background: rgba(33,29,23,.28);
-          transition: background .25s ease, box-shadow .25s ease;
-        }
+        .buttons { display: flex; justify-content: center; gap: 10px; margin-top: 13px; }
+        .chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 700; letter-spacing: .01em; background: var(--housing-deep); box-shadow: inset 0 1px 2px rgba(0,0,0,.22), 0 1px 0 rgba(255,255,255,.35); color: rgba(33,29,23,.55); transition: background .25s ease, color .25s ease; }
+        .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(33,29,23,.28); transition: background .25s ease, box-shadow .25s ease; }
         .chip.on { color: #fff; }
         .chip.on .dot { background: #fff; }
         .chip.cooking.on { background: var(--accent-red); box-shadow: inset 0 1px 2px rgba(0,0,0,.3); }
@@ -247,10 +307,7 @@ class CombustionCard extends HTMLElement {
         .chip.battery { display: none; }
         .chip.battery.on { display: inline-flex; background: var(--accent-red); color: #fff; }
         @keyframes pulse { 50% { opacity: .45; } }
-        @media (prefers-reduced-motion: reduce) {
-          .chip.cooking.on .dot { animation: none; }
-          .chip, .chip .dot { transition: none; }
-        }
+        @media (prefers-reduced-motion: reduce) { .chip.cooking.on .dot { animation: none; } .chip, .chip .dot { transition: none; } }
       </style>
       <div class="housing">
         <div class="lcd" id="lcd" role="button" tabindex="0" aria-label="Open temperature details and history">
@@ -268,33 +325,17 @@ class CombustionCard extends HTMLElement {
             </span>
           </div>
           <div class="main">
-            <span class="digits">
-              <span class="seg ghost">1888.8</span>
-              <span class="seg lit" id="core"></span>
-            </span>
+            <span class="digits"><span class="seg ghost">1888.8</span><span class="seg lit" id="core"></span></span>
             <span class="unit" id="core-unit">&deg;C</span>
           </div>
           <div class="subrow">${this._isGauge ? gaugeSubs : probeSubs}</div>
         </div>
-        <div class="buttons">
-          ${this._isGauge ? gaugeChips : probeChips}
-        </div>
+        <div class="buttons">${this._isGauge ? gaugeChips : probeChips}</div>
       </div>
     `;
-    root.getElementById('lcd').addEventListener('click', () => this._moreInfo());
-    root.getElementById('lcd').addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter' || ev.key === ' ') this._moreInfo();
-    });
-  }
-
-  _moreInfo() {
-    const ev = new Event('hass-more-info', { bubbles: true, composed: true });
-    ev.detail = { entityId: this._entities.core };
-    this.dispatchEvent(ev);
-  }
-
-  _fmt(v, decimals) {
-    return v === null ? null : v.toFixed(decimals);
+    const lcd = root.getElementById('lcd');
+    lcd.addEventListener('click', () => this._moreInfo());
+    lcd.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') this._moreInfo(); });
   }
 
   _setSeg(id, text, unitId, unit) {
@@ -324,8 +365,7 @@ class CombustionCard extends HTMLElement {
     return (pid || 1) + '/' + (name || 'core');
   }
 
-  _update() {
-    if (!this.shadowRoot || !this._hass) return;
+  _updateFlat() {
     const core = this._state('core');
     const available = !!core && core.state !== 'unavailable';
     const unit = (core && core.attributes.unit_of_measurement) || '°C';
@@ -346,8 +386,7 @@ class CombustionCard extends HTMLElement {
     }
 
     this.shadowRoot.getElementById('g-signal').classList.toggle('off', !available);
-    const battState = this._state('battery');
-    const battLow = !!battState && battState.state === 'on';
+    const battLow = (() => { const s = this._state('battery'); return !!s && s.state === 'on'; })();
     this.shadowRoot.getElementById('g-batt').classList.toggle('off', !available);
     this.shadowRoot.getElementById('batt-fill').setAttribute('width', battLow ? '3.5' : '10.5');
 
@@ -372,6 +411,218 @@ class CombustionCard extends HTMLElement {
     setChip('chip-batt', 'battery');
   }
 
+  // ================= ROUND FACE (Giant Grill Gauge) =================
+
+  _buildDial() {
+    const c = 150;
+    const segR = 136, nameR = 102;
+    const tickOut = 143, tickIn = 129, boundOut = 144, boundIn = 126;
+    let out = '';
+
+    // LCD segments that fill between the ticks, hard against the outer edge.
+    // Hidden (opacity 0) until lit up to the current temperature in _update.
+    for (let i = 0; i < GAUGE_TICKS; i++) {
+      const f0 = (i + 0.13) / GAUGE_TICKS;
+      const f1 = (i + 0.87) / GAUGE_TICKS;
+      out += `<path class="seg" data-i="${i}" d="${this._arcPath(c, c, segR, f0, f1)}" fill="none" stroke="var(--lcd-ink)" stroke-width="14" stroke-linecap="butt" opacity="0"/>`;
+    }
+
+    // fixed thin reference ticks at every division, longer at zone boundaries
+    for (let i = 0; i <= GAUGE_TICKS; i++) {
+      const deg = ARC_START_DEG + (i / GAUGE_TICKS) * ARC_SWEEP_DEG;
+      const boundary = GAUGE_BOUNDARY_TICKS.has(i);
+      const a = polar(c, c, boundary ? boundOut : tickOut, deg);
+      const b = polar(c, c, boundary ? boundIn : tickIn, deg);
+      out += `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="var(--lcd-ink)" stroke-width="${boundary ? 1.8 : 1.2}" stroke-linecap="round" opacity="${boundary ? 0.7 : 0.38}"/>`;
+    }
+
+    // zone names centred over their tick ranges
+    for (const z of GAUGE_ZONES) {
+      const midF = this._fractionForC((z.from + z.to) / 2);
+      const deg = ARC_START_DEG + midF * ARC_SWEEP_DEG;
+      const p = polar(c, c, nameR, deg);
+      let rot = deg + 90;
+      if (rot > 90 && rot < 270) rot -= 180;
+      out += `<text x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}" transform="rotate(${rot.toFixed(1)} ${p.x.toFixed(1)} ${p.y.toFixed(1)})" text-anchor="middle" dominant-baseline="middle" class="zone-label" data-zone="${z.name}">${z.name}</text>`;
+    }
+
+    // High (red) and low (blue) alarm setpoint markers, positioned at runtime.
+    out += `<line id="dial-low" x1="${c}" y1="${c}" x2="${c}" y2="${c}" stroke="#2F6FD0" stroke-width="4" stroke-linecap="round" opacity="0"/>`;
+    out += `<line id="dial-high" x1="${c}" y1="${c}" x2="${c}" y2="${c}" stroke="var(--accent-red)" stroke-width="4" stroke-linecap="round" opacity="0"/>`;
+    return out;
+  }
+
+  _renderRound(root) {
+    root.innerHTML = `
+      <style>
+        ${this._baseStyles()}
+        .round { position: relative; width: 100%; max-width: 340px; margin: 0 auto; aspect-ratio: 1 / 1; font-family: "Avenir Next", "Nunito", "Trebuchet MS", system-ui, sans-serif; user-select: none; }
+        .bezel {
+          position: absolute; inset: 0; border-radius: 50%;
+          background: radial-gradient(circle at 50% 32%, var(--housing-light) 0%, var(--housing) 46%, var(--housing-deep) 100%);
+          box-shadow: inset 0 2px 2px rgba(255,255,255,.5), inset 0 -4px 8px rgba(0,0,0,.18), 0 3px 8px rgba(0,0,0,.28);
+        }
+        .glass {
+          position: absolute; inset: 7%; border-radius: 50%;
+          background: radial-gradient(circle at 50% 22%, rgba(255,255,255,.4), rgba(255,255,255,0) 42%), var(--lcd-glass);
+          box-shadow: inset 0 3px 10px rgba(0,0,0,.45), inset 0 -2px 3px rgba(255,255,255,.35);
+          overflow: hidden;
+        }
+        .dial { position: absolute; inset: 0; width: 100%; height: 100%; }
+        .zone-label { font-size: 9px; font-weight: 800; letter-spacing: .04em; fill: var(--lcd-soft); }
+        .zone-label.active { fill: var(--lcd-ink); }
+        .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--lcd-ink); cursor: pointer; }
+        .glyph-row { position: absolute; top: 24%; display: flex; align-items: center; gap: 8px; }
+        .glyph-row svg { display: block; }
+        .glyph-row .off { opacity: .16; }
+        .flame { color: var(--accent-red); }
+        .stack { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 8%; }
+        .grill-main { display: flex; align-items: baseline; }
+        .grill-main .seg { font-size: clamp(40px, 20cqw, 62px); }
+        .grill-main .unit { font-size: 13px; font-weight: 800; margin-left: 6px; align-self: flex-start; margin-top: 6px; }
+        .no-sensor { font-size: 12px; font-weight: 700; color: var(--lcd-soft); text-transform: lowercase; letter-spacing: .03em; display: none; }
+        .secondary { display: none; align-items: center; gap: 8px; }
+        .secondary .cyc { border: none; background: transparent; color: var(--lcd-soft); font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; padding: 2px 4px; line-height: 1; border-radius: 6px; }
+        .secondary .cyc:focus-visible { outline: 2px solid var(--lcd-ink); }
+        .secondary .read { text-align: center; min-width: 84px; }
+        .secondary .slabel { font-size: 10px; font-weight: 700; letter-spacing: .03em; color: var(--lcd-soft); text-transform: lowercase; }
+        .secondary .svalue { display: flex; align-items: baseline; justify-content: center; }
+        .secondary .svalue .seg { font-size: 22px; }
+        .secondary .svalue .unit { font-size: 9px; font-weight: 800; margin-left: 4px; }
+        .alarm-ring { position: absolute; inset: 6%; border-radius: 50%; border: 3px solid var(--accent-red); opacity: 0; pointer-events: none; }
+        .round.alarming .alarm-ring { animation: ring-pulse 1.4s ease-in-out infinite; }
+        .round.dead .overlay, .round.dead .dial { opacity: .4; }
+        @keyframes ring-pulse { 0%, 100% { opacity: 0; } 50% { opacity: .9; } }
+        @media (prefers-reduced-motion: reduce) { .round.alarming .alarm-ring { animation: none; opacity: .8; } }
+      </style>
+      <div class="round" id="round" style="container-type: inline-size;">
+        <div class="bezel"></div>
+        <div class="glass">
+          <svg class="dial" viewBox="0 0 300 300" aria-hidden="true">${this._buildDial()}</svg>
+          <div class="alarm-ring"></div>
+        </div>
+        <div class="overlay" id="lcd" role="button" tabindex="0" aria-label="Open grill temperature details and history">
+          <div class="glyph-row">
+            <svg id="g-bt" width="11" height="16" viewBox="0 0 12 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+              <path d="M3 4.5 L9 13.5 L6 16 L6 2 L9 4.5 L3 13.5"/>
+            </svg>
+            <svg class="flame" width="17" height="19" viewBox="0 0 20 22" fill="currentColor" aria-hidden="true">
+              <path d="M10 1 C 12 6 17 8 14 14 C 13 18 10 20.5 10 20.5 C 10 20.5 7 18 6 14 C 5 11 7 9 7 9 C 7 12 10 12 10 9 C 10 5 9 4 10 1 Z"/>
+            </svg>
+            <svg id="g-signal" width="16" height="13" viewBox="0 0 14 12" fill="currentColor" aria-hidden="true">
+              <path d="M7 9.4a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM3.7 7.6l1.4 1.4a2.7 2.7 0 013.8 0l1.4-1.4a4.7 4.7 0 00-6.6 0zM1 4.9l1.4 1.4a6.5 6.5 0 019.2 0L13 4.9a8.5 8.5 0 00-12 0z"/>
+            </svg>
+          </div>
+          <div class="stack">
+            <div class="grill-main">
+              <span class="digits"><span class="seg ghost">888</span><span class="seg lit" id="core"></span></span>
+              <span class="unit" id="core-unit">&deg;C</span>
+            </div>
+            <div class="no-sensor" id="no-sensor">no sensor</div>
+            <div class="secondary" id="secondary">
+            <button class="cyc" id="cyc" aria-label="Cycle second reading">&#8250;</button>
+            <div class="read">
+              <div class="slabel" id="slabel">core</div>
+              <div class="svalue"><span class="digits"><span class="seg ghost">888</span><span class="seg lit" id="sval"></span></span><span class="unit" id="sunit">&deg;C</span></div>
+            </div>
+          </div>
+          </div>
+        </div>
+      </div>
+    `;
+    const lcd = root.getElementById('lcd');
+    lcd.addEventListener('click', () => this._moreInfo());
+    lcd.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') this._moreInfo(); });
+    const cyc = root.getElementById('cyc');
+    cyc.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (this._secondary.length) {
+        this._secondaryIndex = (this._secondaryIndex + 1) % this._secondary.length;
+        this._update();
+      }
+    });
+  }
+
+  _secondaryLabel(item, st) {
+    if (item.label) return item.label;
+    const fn = st && st.attributes && st.attributes.friendly_name;
+    if (!fn) return 'sensor';
+    return fn.split(' ').slice(-2).join(' ').toLowerCase();
+  }
+
+  _updateRound() {
+    const root = this.shadowRoot;
+    const core = this._state('core');
+    const available = !!core && core.state !== 'unavailable';
+    const unit = (core && core.attributes.unit_of_measurement) || '°C';
+    const value = this._num('core');
+    const sensorSt = this._state('sensor_connected');
+    const sensorOff = !!sensorSt && sensorSt.state === 'off';
+
+    root.getElementById('round').classList.toggle('dead', !available);
+
+    // main grill temperature
+    this._setSeg('core', (available && value !== null) ? this._fmt(value, 0) : '', 'core-unit', unit);
+    root.getElementById('no-sensor').style.display = (available && sensorOff) ? 'block' : 'none';
+
+    // fill the LCD segments between the ticks up to the current temperature
+    const curF = (available && value !== null && !sensorOff)
+      ? this._fractionForC(toCelsius(value, unit)) : null;
+    root.querySelectorAll('.seg').forEach((seg) => {
+      const i = parseInt(seg.getAttribute('data-i'), 10);
+      const lit = curF !== null && (curF * GAUGE_TICKS) >= (i + 0.5);
+      seg.setAttribute('opacity', lit ? '0.92' : '0');
+    });
+    if (curF !== null) {
+      const curC = toCelsius(value, unit);
+      let activeName = null;
+      for (const z of GAUGE_ZONES) if (curC >= z.from) activeName = z.name;
+      root.querySelectorAll('.zone-label').forEach((el) => {
+        el.classList.toggle('active', el.getAttribute('data-zone') === activeName);
+      });
+    } else {
+      root.querySelectorAll('.zone-label').forEach((el) => el.classList.remove('active'));
+    }
+
+    // alarm setpoint markers across the bar (high = red, low = blue)
+    const marker = (id, setpoint) => {
+      const el = root.getElementById(id);
+      if (!available || setpoint === null) { el.setAttribute('opacity', '0'); return; }
+      const f = this._fractionForC(toCelsius(setpoint, unit));
+      const deg = ARC_START_DEG + f * ARC_SWEEP_DEG;
+      const a = polar(150, 150, 143, deg);
+      const b = polar(150, 150, 128, deg);
+      el.setAttribute('x1', a.x.toFixed(1)); el.setAttribute('y1', a.y.toFixed(1));
+      el.setAttribute('x2', b.x.toFixed(1)); el.setAttribute('y2', b.y.toFixed(1));
+      el.setAttribute('opacity', '1');
+    };
+    marker('dial-high', this._alarmSetpoint('high_alarm'));
+    marker('dial-low', this._alarmSetpoint('low_alarm'));
+
+    // glyphs
+    root.getElementById('g-signal').classList.toggle('off', !available);
+
+    // alarm ring
+    const hi = this._state('high_alarm');
+    const lo = this._state('low_alarm');
+    const alarming = available && (((hi && hi.state === 'on')) || (lo && lo.state === 'on'));
+    root.getElementById('round').classList.toggle('alarming', !!alarming);
+
+    // secondary readout
+    const secEl = root.getElementById('secondary');
+    if (this._secondary.length) {
+      const item = this._secondary[this._secondaryIndex % this._secondary.length];
+      const st = this._hass.states[item.entity];
+      const sv = st && st.state !== 'unavailable' && st.state !== 'unknown' ? Number(st.state) : null;
+      const sUnit = (st && st.attributes && st.attributes.unit_of_measurement) || unit;
+      secEl.style.display = 'flex';
+      root.getElementById('slabel').textContent = this._secondaryLabel(item, st);
+      this._setSeg('sval', (sv !== null && Number.isFinite(sv)) ? sv.toFixed(0) : '', 'sunit', sUnit);
+      root.getElementById('cyc').style.visibility = this._secondary.length > 1 ? 'visible' : 'hidden';
+    } else {
+      secEl.style.display = 'none';
+    }
+  }
 }
 
 customElements.define('combustion-card', CombustionCard);
@@ -379,5 +630,5 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'combustion-card',
   name: 'Combustion Card',
-  description: 'Probe & Grill Gauge card styled after the Combustion WiFi Display, with an LCD graph view.',
+  description: 'Probe & Giant Grill Gauge card styled after Combustion hardware, with the round grill dial.',
 });

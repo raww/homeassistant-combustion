@@ -16,8 +16,8 @@ Integrate [Combustion](https://combustion.inc) predictive probes and gauges into
 
 Platform | Description
 -- | --
-`binary_sensor` | Battery, overheating and (for gauges) sensor-connected and alarm status.
-`sensor` | Temperature data from probes and gauges on your Meatnet, plus diagnostics (mode, RSSI).
+`binary_sensor` | Battery, overheating, cooking / probe-inserted (probes) and sensor-connected / alarm status (gauges).
+`sensor` | Temperature data from probes and gauges on your Meatnet, the gauge cooking zone, plus diagnostics (mode, RSSI).
 
 ## What's different in this fork
 
@@ -31,7 +31,8 @@ Fixes:
 
 New features:
 
-- **Giant Grill Gauge support**: temperature, sensor-connected, overheating, low-battery and high/low alarm entities.
+- **Giant Grill Gauge support**: temperature, cooking zone (SMOKE…INSANE), sensor-connected, overheating, low-battery and high/low alarm entities.
+- **Bundled dashboard card** styled after the Combustion hardware — probes render as the square WiFi Display, the Grill Gauge as its round dial. See [Dashboard card](#dashboard-card).
 - **Instant Read temperature sensor** — quick-read temperatures now reach Home Assistant.
 - **Probe diagnostics**: mode sensor (normal / instant read / error) with probe ID and ring colour, and a per-probe overheating sensor.
 
@@ -65,15 +66,15 @@ Optional settings live under **Settings → Devices & Services → Combustion �
 
 ## Dashboard card
 
-The integration bundles a Lovelace card styled after the Combustion WiFi Display — yellow housing, segmented LCD. It registers itself automatically; no resource setup needed. Tap the LCD to open the temperature's details, including Home Assistant's built-in history graph.
+The integration bundles a Lovelace card styled after the Combustion hardware. Probes render as the square 2nd-gen WiFi Display; the Giant Grill Gauge renders as its round dial with the SMOKE→INSANE ring. It registers itself automatically; no resource setup needed. Tap the LCD to open the temperature's details, including Home Assistant's built-in history graph.
 
-| Giant Grill Gauge | Probe in cold meat | Probe off |
+| Giant Grill Gauge | Combined pit + food | Probe, mid-cook |
 | :---: | :---: | :---: |
-| <img src="docs/images/card-gauge.png" width="260" alt="Gauge card: 121.4°C with high alarm set to 110°C and the alarm chip lit"> | <img src="docs/images/card-probe-inserted.png" width="260" alt="Probe card: 4.8°C core, 21°C ambient, probe-in chip lit"> | <img src="docs/images/card-offline.png" width="260" alt="Offline card: blank ghosted LCD with greyed glyphs"> |
+| <img src="docs/images/card-gauge.png" width="260" alt="Round Grill Gauge card: 132°C in the BBQ zone, segmented dial filling from SMOKE, red high-alarm and blue low-alarm marks"> | <img src="docs/images/card-gauge-combined.png" width="260" alt="Round gauge dial with a food probe core temperature shown below"> | <img src="docs/images/card-probe-cooking.png" width="260" alt="Square probe card mid-cook: core 58.6°C, ambient 182°C, cooking and probe-in chips lit"> |
 
 ```yaml
 type: custom:combustion-card
-serial: 10007dc0        # probe serial — or a gauge serial like CR100040A8
+serial: 10007dc0        # probe serial — or a gauge serial like G000000123
 name: brisket           # optional label, shown as "1/brisket" on the LCD
 ```
 
@@ -84,7 +85,17 @@ type: custom:combustion-card
 entity: sensor.predictive_thermometer_10007dc0_core_temperature
 ```
 
-Probes show core temperature with ambient and instant-read sub-panels plus cooking / probe-in / battery chips. Gauges show the gauge temperature with low/high alarm setpoints and alarm / no-sensor / battery chips.
+Probes show core temperature with ambient and instant-read sub-panels plus cooking / probe-in / battery chips.
+
+Gauges render as the round dial: the grill temperature fills the SMOKE→INSANE ring, with red/blue marks for the high/low alarm setpoints. Extra gauge options:
+
+```yaml
+type: custom:combustion-card
+serial: G000000123
+style: square           # optional — use the square face instead of the dial
+secondary: 10007dc0     # optional — show a food probe below the grill temp;
+                        #   a probe serial cycles core/surface/ambient (tap ›)
+```
 
 ## Supported devices
 

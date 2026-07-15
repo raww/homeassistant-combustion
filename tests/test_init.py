@@ -158,7 +158,7 @@ async def test_gauge_entity_creation(hass: HomeAssistant):
     inject_bt_advertisement(
         hass,
         create_advertisement(
-            _gauge_bits(temperature=25.0, high_alarm_set=True, high_alarm_temperature=100.0),
+            _gauge_bits(temperature=120.0, high_alarm_set=True, high_alarm_temperature=100.0),
             connectable=False,
         ),
     )
@@ -167,13 +167,17 @@ async def test_gauge_entity_creation(hass: HomeAssistant):
     er = entity_registry.async_get(hass)
     entities = entity_registry.async_entries_for_config_entry(er, entry.entry_id)
 
-    # 1 temperature + 1 rssi (disabled) + 5 binary sensors
-    assert len(entities) == 7
+    # 1 temperature + 1 zone + 1 rssi (disabled) + 5 binary sensors
+    assert len(entities) == 8
 
     temp_entity = next(e for e in entities if e.unique_id.endswith('--gauge-temperature'))
     state = hass.states.get(temp_entity.entity_id)
     assert state is not None
-    assert float(state.state) == 25.0
+    assert float(state.state) == 120.0
+
+    # 120 °C is in the BBQ zone (108–166 °C)
+    zone_entity = next(e for e in entities if e.unique_id.endswith('--gauge-zone'))
+    assert hass.states.get(zone_entity.entity_id).state == 'bbq'
 
     alarm_entity = next(e for e in entities if e.unique_id.endswith('--high-alarm'))
     alarm_state = hass.states.get(alarm_entity.entity_id)

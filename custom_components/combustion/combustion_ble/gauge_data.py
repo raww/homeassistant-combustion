@@ -150,6 +150,31 @@ class CombustionGaugeData:
         """Low alarm status."""
         return self.gauge_data.low_alarm
 
+    @property
+    def grill_zone(self) -> str | None:
+        """Cooking zone matching the printed dial (SMOKE..INSANE).
+
+        Zone boundaries are temperature ranges in °C. These must stay in sync
+        with GAUGE_ZONES in the bundled dashboard card (www/combustion-card.js).
+        Returns None when no sensor is attached, and 'off' below the smoke zone.
+        """
+        c = self.temperature
+        if c is None:
+            return None
+        if c < 65:
+            return 'off'
+        if c < 108:
+            return 'smoke'
+        if c < 166:
+            return 'bbq'
+        if c < 253:
+            return 'low_grill'
+        if c < 281:
+            return 'med'
+        if c < 440:
+            return 'high'
+        return 'insane'
+
     @staticmethod
     def from_advertisement(service_info) -> CombustionGaugeData | None:
         """Create instance from BT advertisement data."""
