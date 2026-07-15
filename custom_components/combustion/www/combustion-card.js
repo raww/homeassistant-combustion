@@ -8,7 +8,7 @@
  *
  * Usage (any ONE of these is enough):
  *   type: custom:combustion-card
- *   serial: 10007dc0            # probe serial, or gauge serial like CR100040A8
+ *   serial: 10007dc0            # probe serial, or gauge serial like G000000123
  *   # or:
  *   entity: sensor.predictive_thermometer_10007dc0_core_temperature
  *
@@ -134,7 +134,7 @@ class CombustionCard extends HTMLElement {
       <span class="chip state battery" id="chip-batt"><span class="dot"></span>battery low</span>`;
     const gaugeChips = `
       <span class="chip state cooking" id="chip-a"><span class="dot"></span>alarm</span>
-      <span class="chip state nosensor" id="chip-b"><span class="dot"></span>no sensor</span>
+      <span class="chip state sensor" id="chip-b"><span class="dot"></span>sensor</span>
       <span class="chip state battery" id="chip-batt"><span class="dot"></span>battery low</span>`;
 
     root.innerHTML = `
@@ -243,7 +243,7 @@ class CombustionCard extends HTMLElement {
         .chip.cooking.on { background: var(--accent-red); box-shadow: inset 0 1px 2px rgba(0,0,0,.3); }
         .chip.cooking.on .dot { box-shadow: 0 0 6px rgba(255,255,255,.8); animation: pulse 2.2s ease-in-out infinite; }
         .chip.inserted.on { background: var(--ink); }
-        .chip.nosensor.on { background: var(--accent-red); }
+        .chip.sensor.on { background: var(--ink); }
         .chip.battery { display: none; }
         .chip.battery.on { display: inline-flex; background: var(--accent-red); color: #fff; }
         @keyframes pulse { 50% { opacity: .45; } }
@@ -364,7 +364,7 @@ class CombustionCard extends HTMLElement {
       const lo = this._state('low_alarm');
       const alarming = (hi && hi.state === 'on') || (lo && lo.state === 'on');
       this.shadowRoot.getElementById('chip-a').classList.toggle('on', !!alarming && available);
-      setChip('chip-b', 'sensor_connected', true);
+      setChip('chip-b', 'sensor_connected');
     } else {
       setChip('chip-a', 'cooking');
       setChip('chip-b', 'inserted');
