@@ -95,6 +95,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[f"{DOMAIN}_prediction"] = prediction_manager
     hass.data[f"{DOMAIN}_connection"] = connection_manager
 
+    # The entity platforms reach the managers through hass.data[DOMAIN] (the
+    # ProbeManager). Attach them here as the single hand-off seam; the control
+    # manager and active-connection flag are populated by later tasks.
+    probe_manager.connection_manager = connection_manager
+    probe_manager.control_manager = None
+    probe_manager.active_enabled = bool(enable_predictions)
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
