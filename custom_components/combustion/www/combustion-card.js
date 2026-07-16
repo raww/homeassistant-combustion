@@ -106,6 +106,9 @@ class CombustionCard extends HTMLElement {
       inserted: 'binary_sensor.' + base + '_probe_inserted',
       battery: 'binary_sensor.' + base + '_battery',
       mode: 'sensor.' + base + '_mode',
+      ready_in: 'sensor.' + base + '_ready_in',
+      cook_target: 'sensor.' + base + '_cook_target',
+      prediction: 'sensor.' + base + '_prediction',
     };
     const overrides = Object.assign({}, config.entities || {});
     if (overrides.temperature && this._isGauge) overrides.core = overrides.temperature;
@@ -220,16 +223,16 @@ class CombustionCard extends HTMLElement {
   _renderFlat(root) {
     const probeSubs = `
       <div class="sub">
-        <div class="label">ambient</div>
+        <div class="label" id="sub-left-label">ambient</div>
         <div class="value-row">
-          <span class="digits"><span class="seg ghost">888</span><span class="seg lit" id="sub-left"></span></span>
+          <span class="digits"><span class="seg ghost" id="sub-left-ghost">888</span><span class="seg lit" id="sub-left"></span></span>
           <span class="unit" id="sub-left-unit">&deg;C</span>
         </div>
       </div>
       <div class="sub right">
-        <div class="label">instant read</div>
+        <div class="label" id="sub-right-label">instant read</div>
         <div class="value-row">
-          <span class="digits"><span class="seg ghost">888</span><span class="seg lit" id="sub-right"></span></span>
+          <span class="digits"><span class="seg ghost" id="sub-right-ghost">888</span><span class="seg lit" id="sub-right"></span></span>
           <span class="unit" id="sub-right-unit">&deg;C</span>
         </div>
       </div>`;
@@ -381,8 +384,30 @@ class CombustionCard extends HTMLElement {
       this._setSeg('sub-left', available && lo !== null ? this._fmt(lo, 0) : '', 'sub-left-unit', unit);
       this._setSeg('sub-right', available && hi !== null ? this._fmt(hi, 0) : '', 'sub-right-unit', unit);
     } else {
-      this._setSeg('sub-left', available ? this._fmt(this._num('ambient'), 0) : '', 'sub-left-unit', unit);
-      this._setSeg('sub-right', available ? this._fmt(this._num('instant'), 0) : '', 'sub-right-unit', unit);
+      const readyIn = this._num('ready_in');
+      const predicting = available && readyIn !== null;
+      const setLabel = (id, text) => { const el = this.shadowRoot.getElementById(id); if (el) el.textContent = text; };
+      const setGhost = (id, text) => { const el = this.shadowRoot.getElementById(id); if (el) el.textContent = text; };
+      if (predicting) {
+        // mirror the WiFi Display: cook target + ready-in countdown
+        const target = this._num('cook_target');
+        setLabel('sub-left-label', 'cook target');
+        setGhost('sub-left-ghost', '888');
+        this._setSeg('sub-left', target !== null ? this._fmt(target, 0) : '', 'sub-left-unit', unit);
+        setLabel('sub-right-label', 'ready in');
+        setGhost('sub-right-ghost', '88:88');
+        const mm = Math.floor(readyIn / 60), ss = readyIn % 60;
+        this._setSeg('sub-right', `${mm}:${String(ss).padStart(2, '0')}`);
+        setLabel('sub-right-unit', '');
+      } else {
+        setLabel('sub-left-label', 'ambient');
+        setGhost('sub-left-ghost', '888');
+        this._setSeg('sub-left', available ? this._fmt(this._num('ambient'), 0) : '', 'sub-left-unit', unit);
+        setLabel('sub-right-label', 'instant read');
+        setGhost('sub-right-ghost', '888');
+        setLabel('sub-right-unit', unit);
+        this._setSeg('sub-right', available ? this._fmt(this._num('instant'), 0) : '', 'sub-right-unit', unit);
+      }
     }
 
     this.shadowRoot.getElementById('g-signal').classList.toggle('off', !available);
