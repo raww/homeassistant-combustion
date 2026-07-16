@@ -15,6 +15,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.loader import async_get_integration
 
 from custom_components.combustion.bluetooth_listener import BluetoothListener
+from custom_components.combustion.connection_manager import ConnectionManager
 from custom_components.combustion.prediction_manager import PredictionManager
 from custom_components.combustion.probe_manager import ProbeManager
 
@@ -89,8 +90,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN] = probe_manager
 
-    prediction_manager = PredictionManager(hass, entry, probe_manager, bool(enable_predictions))
+    connection_manager = ConnectionManager(hass, entry, probe_manager, bool(enable_predictions))
+    prediction_manager = PredictionManager(hass, entry, connection_manager, probe_manager)
     hass.data[f"{DOMAIN}_prediction"] = prediction_manager
+    hass.data[f"{DOMAIN}_connection"] = connection_manager
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -98,6 +101,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     probe_manager.async_init()
     listener.async_init()
     prediction_manager.async_init()
+    connection_manager.async_init()
 
     # When a device stops advertising, no bluetooth callback fires to push the
     # entities to unavailable; re-notify periodically so availability updates.
@@ -125,6 +129,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unloaded := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN] = {}
         hass.data.pop(f"{DOMAIN}_prediction", None)
+        hass.data.pop(f"{DOMAIN}_connection", None)
     return unloaded
 
 
