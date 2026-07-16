@@ -149,8 +149,10 @@ class ConnectionManager:
         """Record a live client and (re)subscribe all notify handlers."""
         self._clients[serial] = client
         for char, handler in self._subscriptions.items():
-            with contextlib.suppress(Exception):
+            try:
                 await client.start_notify(char, self._make_notify(serial, handler))
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("start_notify failed for %s on [%s]", char, serial, exc_info=True)
         self._notify_conn_listeners()
 
     def _on_disconnected(self, serial: str) -> None:
@@ -166,17 +168,15 @@ class ConnectionManager:
 
         return _cb
 
-    async def _write_and_wait(self, client, frame: bytes, expect: bool):
-        """Write a frame to the UART RX char.
-
-        `expect` is reserved for a future response-read seam; writes are
-        currently fire-and-forget.
-        """
-        await client.write_gatt_char(self.UART_RX_CHAR, frame, response=True)
-        return None
-
     async def async_send_command(self, serial: str, frame: bytes) -> None:
-        """Write a UART command to a probe, raising if it is not connected."""
+        """Write a UART command to a probe, raising if it is not connected.
+
+        This is fire-and-forget: it writes the command frame and does NOT
+        read the device's response. Combustion device responses arrive as
+        separate notifications on the UART TX characteristic, not as GATT
+        write-responses; reading them is out of scope for now and left as
+        future work.
+        """
         client = self._clients.get(serial)
         if client is None:
             # try one on-demand connect if we know the address
@@ -193,7 +193,7 @@ class ConnectionManager:
             if client is None:
                 raise HomeAssistantError(f"{serial} is not connected")
         try:
-            await self._write_and_wait(client, frame, expect=False)
+            await client.write_gatt_char(self.UART_RX_CHAR, frame, response=True)
         except Exception as err:  # noqa: BLE001
             raise HomeAssistantError(f"Failed to send command to {serial}: {err}") from err
 

@@ -54,10 +54,9 @@ async def test_send_command_writes_when_connected(hass):
     mgr = _manager(hass)
     client = _FakeClient()
     await mgr._on_connected("SERIAL1", client)
-    # stub a success response by pre-seeding the response future path:
-    await mgr._write_and_wait(client, b"\xca\xfe\x00\x00\x0c\x00", expect=False)
-    assert client.written[0][0] == ConnectionManager.UART_RX_CHAR
-    assert client.written[0][1] == b"\xca\xfe\x00\x00\x0c\x00"
+    frame = b"\xca\xfe\x00\x00\x0c\x00"
+    await mgr.async_send_command("SERIAL1", frame)
+    assert client.written[0] == (ConnectionManager.UART_RX_CHAR, frame)
 
 
 @pytest.mark.asyncio
