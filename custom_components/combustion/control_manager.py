@@ -19,7 +19,10 @@ class ControlManager:
         await self._conn.async_send_command(serial, uart.set_prediction(temp_c, mode))
 
     async def async_set_mode(self, serial: str, mode: PredictionMode) -> None:
-        """Change prediction mode, keeping the last-known target temperature."""
+        """Change prediction mode, keeping the last-known target temperature.
+
+        If no target has been set yet for this serial, it defaults to 0.0°C.
+        """
         temp_c, _ = self._target.get(serial, (0.0, mode))
         await self.async_set_target(serial, temp_c, mode)
 

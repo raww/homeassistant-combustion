@@ -1,6 +1,6 @@
 """Tests for ControlManager -> ConnectionManager wiring."""
 import pytest
-from combustion.combustion_ble.uart import PredictionMode
+from combustion.combustion_ble.uart import PredictionMode, set_prediction
 from combustion.control_manager import ControlManager
 
 
@@ -20,6 +20,17 @@ async def test_set_target_sends_prediction_frame():
     await mgr.async_set_target("S1", 60.0, PredictionMode.REMOVAL_AND_RESTING)
     assert conn.sent[0][0] == "S1"
     assert conn.sent[0][1].hex() == "cafeb9700502580a"
+
+
+@pytest.mark.asyncio
+async def test_set_mode_reuses_last_target():
+    """Changing mode alone re-sends Set Prediction with the remembered target temp."""
+    conn = _FakeConn()
+    mgr = ControlManager(conn)
+    await mgr.async_set_target("S1", 60.0, PredictionMode.TIME_TO_REMOVAL)
+    await mgr.async_set_mode("S1", PredictionMode.REMOVAL_AND_RESTING)
+    assert conn.sent[1][0] == "S1"
+    assert conn.sent[1][1].hex() == set_prediction(60.0, PredictionMode.REMOVAL_AND_RESTING).hex()
 
 
 @pytest.mark.asyncio
