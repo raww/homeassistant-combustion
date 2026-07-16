@@ -9,14 +9,14 @@ Integrate [Combustion](https://combustion.inc) predictive probes and gauges into
 > **Note:** This is a maintained fork of [legrego/homeassistant-combustion](https://github.com/legrego/homeassistant-combustion) with fixes for Home Assistant 2026.3+ and additional device support. See [What's different in this fork](#whats-different-in-this-fork).
 
 <p align="center">
-  <img src="docs/images/card-probe-cooking.png" width="420" alt="Bundled dashboard card showing a probe mid-cook: core temperature 58.6°C on a segmented LCD, ambient 182°C, cooking and probe-in chips lit">
+  <img src="docs/images/card-probe-cooking.png" width="420" alt="Bundled dashboard card showing a probe mid-cook: core temperature 58.6°C on a segmented LCD with ambient and instant-read panels">
 </p>
 
 **This integration will set up the following platforms.**
 
 Platform | Description
 -- | --
-`binary_sensor` | Battery, overheating, cooking / probe-inserted (probes) and sensor-connected / alarm status (gauges).
+`binary_sensor` | Battery and overheating (probes), plus sensor-connected and high/low alarm status (gauges).
 `sensor` | Temperature data from probes and gauges on your Meatnet, the gauge cooking zone, plus diagnostics (mode, RSSI).
 
 ## What's different in this fork
@@ -76,7 +76,7 @@ The integration bundles a Lovelace card styled after the Combustion hardware. Pr
 
 | Giant Grill Gauge | Combined pit + food | Probe, mid-cook |
 | :---: | :---: | :---: |
-| <img src="docs/images/card-gauge.png" width="260" alt="Round Grill Gauge card: 132°C in the BBQ zone, segmented dial filling from SMOKE, red high-alarm and blue low-alarm marks"> | <img src="docs/images/card-gauge-combined.png" width="260" alt="Round gauge dial with a food probe core temperature shown below"> | <img src="docs/images/card-probe-cooking.png" width="260" alt="Square probe card mid-cook: core 58.6°C, ambient 182°C, cooking and probe-in chips lit"> |
+| <img src="docs/images/card-gauge.png" width="260" alt="Round Grill Gauge card: 132°C in the BBQ zone, segmented dial filling from SMOKE, red high-alarm and blue low-alarm marks"> | <img src="docs/images/card-gauge-combined.png" width="260" alt="Round gauge dial with a food probe core temperature shown below"> | <img src="docs/images/card-probe-cooking.png" width="260" alt="Square probe card mid-cook: core 58.6°C with ambient and instant-read panels"> |
 
 ```yaml
 type: custom:combustion-card
@@ -91,7 +91,7 @@ type: custom:combustion-card
 entity: sensor.predictive_thermometer_10007dc0_core_temperature
 ```
 
-Probes show core temperature with ambient and instant-read sub-panels plus cooking / probe-in / battery chips.
+Probes show core temperature with ambient and instant-read sub-panels; while a cook target is set (see [Predictions](#predictions-experimental)) the sub-panels switch to the cook target and a "ready in" countdown.
 
 Gauges render as the round dial: the grill temperature fills the SMOKE→INSANE ring, with red/blue marks for the high/low alarm setpoints. Extra gauge options:
 

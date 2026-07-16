@@ -102,8 +102,7 @@ class CombustionCard extends HTMLElement {
       core: 'sensor.' + base + '_core_temperature',
       ambient: 'sensor.' + base + '_ambient_temperature',
       instant: 'sensor.' + base + '_instant_read_temperature',
-      cooking: 'binary_sensor.' + base + '_cooking',
-      inserted: 'binary_sensor.' + base + '_probe_inserted',
+      overheating: 'binary_sensor.' + base + '_overheating',
       battery: 'binary_sensor.' + base + '_battery',
       mode: 'sensor.' + base + '_mode',
       ready_in: 'sensor.' + base + '_ready_in',
@@ -252,8 +251,7 @@ class CombustionCard extends HTMLElement {
         </div>
       </div>`;
     const probeChips = `
-      <span class="chip state cooking" id="chip-a"><span class="dot"></span>cooking</span>
-      <span class="chip state inserted" id="chip-b"><span class="dot"></span>probe in</span>
+      <span class="chip state overheat" id="chip-a"><span class="dot"></span>overheating</span>
       <span class="chip state battery" id="chip-batt"><span class="dot"></span>battery low</span>`;
     const gaugeChips = `
       <span class="chip state cooking" id="chip-a"><span class="dot"></span>alarm</span>
@@ -305,7 +303,8 @@ class CombustionCard extends HTMLElement {
         .chip.on .dot { background: #fff; }
         .chip.cooking.on { background: var(--accent-red); box-shadow: inset 0 1px 2px rgba(0,0,0,.3); }
         .chip.cooking.on .dot { box-shadow: 0 0 6px rgba(255,255,255,.8); animation: pulse 2.2s ease-in-out infinite; }
-        .chip.inserted.on { background: var(--ink); }
+        .chip.overheat { display: none; }
+        .chip.overheat.on { display: inline-flex; background: var(--accent-red); color: #fff; }
         .chip.sensor.on { background: var(--ink); }
         .chip.battery { display: none; }
         .chip.battery.on { display: inline-flex; background: var(--accent-red); color: #fff; }
@@ -430,8 +429,7 @@ class CombustionCard extends HTMLElement {
       this.shadowRoot.getElementById('chip-a').classList.toggle('on', !!alarming && available);
       setChip('chip-b', 'sensor_connected');
     } else {
-      setChip('chip-a', 'cooking');
-      setChip('chip-b', 'inserted');
+      setChip('chip-a', 'overheating');
     }
     setChip('chip-batt', 'battery');
   }

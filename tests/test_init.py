@@ -52,11 +52,11 @@ async def test_entity_creation(hass: HomeAssistant):
     disabled_sensors = [e for e in sensors if e.disabled is True]
     binary_sensors = [e for e in entities if e.domain == 'binary_sensor']
 
-    assert len(entities) == 18
+    assert len(entities) == 16
     assert len(sensors) == 14
     # 9 disabled by default: 8 temperature sensors, and 1 RSSI sensor
     assert len(disabled_sensors) == 9
-    assert len(binary_sensors) == 4
+    assert len(binary_sensors) == 2
 
 
 @pytest.mark.asyncio
@@ -84,7 +84,7 @@ async def test_entity_creation_non_connectable(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     entities = entity_registry.async_entries_for_config_entry(er, entry.entry_id)
-    assert len(entities) == 18
+    assert len(entities) == 16
 
 
 def _booster_bits() -> bytes:
@@ -453,66 +453,6 @@ async def test_mode_and_overheating_sensors(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_cooking_sensor_hysteresis(hass: HomeAssistant):
-    """Cooking sensor turns on at >=45C ambient and off below 40C."""
-    import time as real_time
-    from unittest.mock import patch
-
-    mock_entry = MockConfigEntry(
-        unique_id="test_cooking",
-        domain=DOMAIN,
-        version=1,
-        data={},
-        title="Meatnet",
-    )
-
-    await _setup_config_entry(hass, mock_entry)
-
-    def temps(ambient):
-        # Default ambient virtual sensor is T7 (index 6).
-        values = [25.0] * 8
-        values[6] = ambient
-        return values
-
-    cold = create_advertisement(create_combustion_bits(temperature_data=temps(25.0)))
-    inject_bt_advertisement(hass, cold)
-    await hass.async_block_till_done()
-    inject_bt_advertisement(hass, cold)
-    await hass.async_block_till_done()
-
-    er = entity_registry.async_get(hass)
-    cooking_id = next(e.entity_id for e in er.entities.values() if (e.unique_id or '').endswith('--cooking'))
-    mode_id = next(e.entity_id for e in er.entities.values() if (e.unique_id or '').endswith('--mode'))
-
-    assert hass.states.get(cooking_id).state == 'off'
-
-    # Source attributes exposed on the mode sensor
-    mode_attrs = hass.states.get(mode_id).attributes
-    assert mode_attrs['via_repeater'] is False
-    assert mode_attrs['hops'] is None
-    assert 'source_address' in mode_attrs
-
-    base = real_time.monotonic()
-    with patch('custom_components.combustion.probe_manager.time.monotonic', return_value=base + 10.0):
-        inject_bt_advertisement(hass, create_advertisement(create_combustion_bits(temperature_data=temps(80.0))))
-        await hass.async_block_till_done()
-        state = hass.states.get(cooking_id)
-        assert state.state == 'on'
-        assert state.attributes['ambient_temperature'] == 80.0
-
-    with patch('custom_components.combustion.probe_manager.time.monotonic', return_value=base + 20.0):
-        # 42C: below the ON threshold but above the OFF threshold -> stays on
-        inject_bt_advertisement(hass, create_advertisement(create_combustion_bits(temperature_data=temps(42.0))))
-        await hass.async_block_till_done()
-        assert hass.states.get(cooking_id).state == 'on'
-
-    with patch('custom_components.combustion.probe_manager.time.monotonic', return_value=base + 30.0):
-        inject_bt_advertisement(hass, create_advertisement(create_combustion_bits(temperature_data=temps(30.0))))
-        await hass.async_block_till_done()
-        assert hass.states.get(cooking_id).state == 'off'
-
-
-@pytest.mark.asyncio
 async def test_manager_options_respected(hass: HomeAssistant):
     """Configured availability timeout and update throttle are honored."""
     from unittest.mock import patch
@@ -600,55 +540,6 @@ async def test_options_flow(hass: HomeAssistant):
     assert hass.data[DOMAIN].availability_timeout_seconds == 45.0
 
 
-@pytest.mark.asyncio
-async def test_probe_inserted_detects_fridge_cold_meat(hass: HomeAssistant):
-    """Cold meat at room temperature reads as inserted (differential) but not cooking."""
-    import time as real_time
-    from unittest.mock import patch
-
-    mock_entry = MockConfigEntry(
-        unique_id="test_inserted",
-        domain=DOMAIN,
-        version=1,
-        data={},
-        title="Meatnet",
-    )
-
-    await _setup_config_entry(hass, mock_entry)
-
-    uniform = create_advertisement(create_combustion_bits(temperature_data=[20.0] * 8))
-    inject_bt_advertisement(hass, uniform)
-    await hass.async_block_till_done()
-    inject_bt_advertisement(hass, uniform)
-    await hass.async_block_till_done()
-
-    er = entity_registry.async_get(hass)
-    inserted_id = next(e.entity_id for e in er.entities.values() if (e.unique_id or '').endswith('--inserted'))
-    cooking_id = next(e.entity_id for e in er.entities.values() if (e.unique_id or '').endswith('--cooking'))
-
-    # Probe on the counter: uniform temperatures -> not inserted.
-    assert hass.states.get(inserted_id).state == 'off'
-
-    base = real_time.monotonic()
-    # Into fridge-cold meat on the counter: tip 4C, handle 20C.
-    fridge_meat = create_advertisement(create_combustion_bits(temperature_data=[4.0] + [20.0] * 7))
-    with patch('custom_components.combustion.probe_manager.time.monotonic', return_value=base + 10.0):
-        inject_bt_advertisement(hass, fridge_meat)
-        await hass.async_block_till_done()
-        state = hass.states.get(inserted_id)
-        assert state.state == 'on'
-        assert state.attributes['differential'] == 16.0
-        assert hass.states.get(cooking_id).state == 'off'
-
-    # Resting: hot core, room ambient -> still inserted, not cooking.
-    resting = create_advertisement(create_combustion_bits(temperature_data=[60.0] + [22.0] * 7))
-    with patch('custom_components.combustion.probe_manager.time.monotonic', return_value=base + 20.0):
-        inject_bt_advertisement(hass, resting)
-        await hass.async_block_till_done()
-        assert hass.states.get(inserted_id).state == 'on'
-        assert hass.states.get(cooking_id).state == 'off'
-
-
 def test_prediction_decode_matches_combustion_bit_packing():
     """The 7-byte prediction status decodes per Combustion's Android library."""
     from custom_components.combustion.combustion_ble.prediction_data import (
@@ -722,7 +613,7 @@ async def test_setup_with_predictions_option_enabled(hass: HomeAssistant):
     assert hass.data.get(f"{DOMAIN}_prediction") is not None
     er = entity_registry.async_get(hass)
     entities = entity_registry.async_entries_for_config_entry(er, entry.entry_id)
-    assert len(entities) == 18   # prediction entities appear only once connected
+    assert len(entities) == 16   # prediction entities appear only once connected
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
