@@ -594,14 +594,14 @@ def test_prediction_decode_from_status_characteristic_offset():
 @pytest.mark.asyncio
 async def test_setup_with_predictions_option_enabled(hass: HomeAssistant):
     """Setup with predictions enabled must succeed and create the manager."""
-    from custom_components.combustion.const import CONF_ENABLE_PREDICTIONS
+    from custom_components.combustion.const import CONF_ENABLE_ACTIVE_CONNECTION
 
     mock_entry = MockConfigEntry(
         unique_id="test_predictions_enabled",
         domain=DOMAIN,
         version=1,
         data={},
-        options={CONF_ENABLE_PREDICTIONS: True},
+        options={CONF_ENABLE_ACTIVE_CONNECTION: True},
         title="Meatnet",
     )
 

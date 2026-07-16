@@ -21,10 +21,10 @@ from custom_components.combustion.probe_manager import ProbeManager
 
 from .const import (
     CONF_AVAILABILITY_TIMEOUT,
-    CONF_ENABLE_PREDICTIONS,
+    CONF_ENABLE_ACTIVE_CONNECTION,
     CONF_UPDATE_THROTTLE,
     DEFAULT_AVAILABILITY_TIMEOUT,
-    DEFAULT_ENABLE_PREDICTIONS,
+    DEFAULT_ENABLE_ACTIVE_CONNECTION,
     DEFAULT_UPDATE_THROTTLE,
     DOMAIN,
     LOGGER,
@@ -79,7 +79,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     availability_timeout = entry.options.get(CONF_AVAILABILITY_TIMEOUT, DEFAULT_AVAILABILITY_TIMEOUT)
     update_throttle = entry.options.get(CONF_UPDATE_THROTTLE, DEFAULT_UPDATE_THROTTLE)
-    enable_predictions = entry.options.get(CONF_ENABLE_PREDICTIONS, DEFAULT_ENABLE_PREDICTIONS)
+    enable_active_connection = entry.options.get(CONF_ENABLE_ACTIVE_CONNECTION, DEFAULT_ENABLE_ACTIVE_CONNECTION)
 
     listener = BluetoothListener(hass, entry)
     probe_manager = ProbeManager(
@@ -90,7 +90,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN] = probe_manager
 
-    connection_manager = ConnectionManager(hass, entry, probe_manager, bool(enable_predictions))
+    connection_manager = ConnectionManager(hass, entry, probe_manager, bool(enable_active_connection))
     prediction_manager = PredictionManager(hass, entry, connection_manager, probe_manager)
     hass.data[f"{DOMAIN}_prediction"] = prediction_manager
     hass.data[f"{DOMAIN}_connection"] = connection_manager
@@ -100,7 +100,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # manager and active-connection flag are populated by later tasks.
     probe_manager.connection_manager = connection_manager
     probe_manager.control_manager = None
-    probe_manager.active_enabled = bool(enable_predictions)
+    probe_manager.active_enabled = bool(enable_active_connection)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))

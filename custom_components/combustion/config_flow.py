@@ -15,10 +15,10 @@ from custom_components.combustion.combustion_ble.combustion_probe_data import (
 from .const import (
     CONF_AVAILABILITY_TIMEOUT,
     CONF_DEVICES,
-    CONF_ENABLE_PREDICTIONS,
+    CONF_ENABLE_ACTIVE_CONNECTION,
     CONF_UPDATE_THROTTLE,
     DEFAULT_AVAILABILITY_TIMEOUT,
-    DEFAULT_ENABLE_PREDICTIONS,
+    DEFAULT_ENABLE_ACTIVE_CONNECTION,
     DEFAULT_UPDATE_THROTTLE,
     DOMAIN,
     LOGGER,
@@ -168,8 +168,8 @@ class CombustionOptionsFlowHandler(config_entries.OptionsFlow):
                 default=options.get(CONF_UPDATE_THROTTLE, DEFAULT_UPDATE_THROTTLE),
             ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=30.0)),
             vol.Optional(
-                CONF_ENABLE_PREDICTIONS,
-                default=options.get(CONF_ENABLE_PREDICTIONS, DEFAULT_ENABLE_PREDICTIONS),
+                CONF_ENABLE_ACTIVE_CONNECTION,
+                default=options.get(CONF_ENABLE_ACTIVE_CONNECTION, DEFAULT_ENABLE_ACTIVE_CONNECTION),
             ): bool,
         })
         return self.async_show_form(step_id="init", data_schema=schema)
