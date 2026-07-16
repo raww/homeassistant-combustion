@@ -11,6 +11,7 @@ from custom_components.combustion.combustion_ble.combustion_probe_data import (
     CombustionProbeData,
 )
 from custom_components.combustion.combustion_ble.gauge_data import CombustionGaugeData
+from custom_components.combustion.combustion_ble.node_data import NodeData
 from custom_components.combustion.const import BT_MANUFACTURER_ID, LOGGER
 
 _LOGGER = LOGGER.getChild('bluetooth-listener')
@@ -94,7 +95,12 @@ class BluetoothListener:
                 return None
             return gauge_data
 
-        # Displays, boosters, engines and unknown future products don't carry
-        # sensor data in their advertisements.
+        if product_type in (CombustionProductType.BOOSTER, CombustionProductType.DISPLAY):
+            node_data = NodeData.from_advertisement(service_info)
+            if node_data is None or not node_data.valid:
+                return None
+            return node_data
+
+        # Engines and unknown future products aren't handled yet.
         _LOGGER.debug("Ignoring %s advertisement from [%s]", product_type.name, service_info.address)
         return None

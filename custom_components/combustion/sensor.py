@@ -31,6 +31,9 @@ from .const import DEVICE_NAME, DOMAIN, LOGGER
 
 _LOGGER = LOGGER.getChild('sensor')
 
+# Device names shown on the HA device page, keyed by advertisement device type.
+DEVICE_NAMES = {'GAUGE': 'Grill Gauge', 'BOOSTER': 'Booster', 'DISPLAY': 'Display'}
+
 VIRTUAL_TEMPERATURE_SENSOR_DESCRIPTION = SensorEntityDescription(
     key=f"{SensorDeviceClass.TEMPERATURE}_{Units.TEMP_CELSIUS}",
     device_class=SensorDeviceClass.TEMPERATURE,
@@ -132,6 +135,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     def _create_sensors_callback(pm: ProbeManager, device_data):
         if device_data.device_type == 'GAUGE':
             sensors = _create_gauge_sensors(pm, device_data)
+        elif device_data.device_type in ('BOOSTER', 'DISPLAY'):
+            sensors = [CombustionRSSISensor(pm, device_data)]
         else:
             sensors = _create_temperature_sensors(pm, device_data)
             sensors.extend(_create_diagnostic_sensors(pm, device_data))
@@ -289,13 +294,15 @@ class CombustionRSSISensor(CombustionEntity, SensorEntity):
 
     def __init__(self, probe_manager: ProbeManager, probe_data) -> None:
         """Initialize."""
-        device_name = 'Grill Gauge' if probe_data.device_type == 'GAUGE' else DEVICE_NAME
-        super().__init__(probe_data.serial_number, device_name=device_name)
+        super().__init__(probe_data.serial_number, device_name=DEVICE_NAMES.get(probe_data.device_type, DEVICE_NAME))
         self.device_serial_number = probe_data.serial_number
         self.probe_manager = probe_manager
         self._attr_has_entity_name = True
         self._attr_unique_id = f'{probe_data.serial_number}--rssi'
         self.entity_description = RSSI_SENSOR_DESCRIPTION
+        # A repeater's only real self-data is its signal, so surface it.
+        if probe_data.device_type in ('BOOSTER', 'DISPLAY'):
+            self._attr_entity_registry_enabled_default = True
 
     @property
     def should_poll(self) -> bool:

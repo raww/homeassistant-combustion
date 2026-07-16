@@ -7,6 +7,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityPlatformState
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -49,6 +50,15 @@ GAUGE_LOW_ALARM_DESCRIPTION = BinarySensorEntityDescription(
 )
 
 
+NODE_DEVICE_NAMES = {'BOOSTER': 'Booster', 'DISPLAY': 'Display'}
+
+HIGH_RADIO_POWER_DESCRIPTION = BinarySensorEntityDescription(
+    key="high_radio_power",
+    name="High radio power",
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+
 def _create_binary_sensors(probe_manager: ProbeManager, device_data):
     if device_data.device_type == 'GAUGE':
         return [
@@ -58,6 +68,9 @@ def _create_binary_sensors(probe_manager: ProbeManager, device_data):
             CombustionGaugeAlarmSensor(probe_manager, device_data, 'high'),
             CombustionGaugeAlarmSensor(probe_manager, device_data, 'low'),
         ]
+
+    if device_data.device_type in ('BOOSTER', 'DISPLAY'):
+        return [CombustionHighRadioPowerSensor(probe_manager, device_data)]
 
     return [
         CombustionBatterySensor(probe_manager, device_data),
@@ -234,3 +247,25 @@ class CombustionGaugeAlarmSensor(BaseCombustionBinarySensor):
             'tripped': alarm.tripped,
             'alarm_temperature': round(alarm.temperature, 1) if alarm.is_set else None,
         }
+
+
+class CombustionHighRadioPowerSensor(BaseCombustionBinarySensor):
+    """Whether a MeatNet repeater transmits at high radio power (+8 dBm)."""
+
+    def __init__(self, probe_manager: ProbeManager, device_data) -> None:
+        """Initialize."""
+        super().__init__(probe_manager, device_data,
+                         device_name=NODE_DEVICE_NAMES.get(device_data.device_type, 'Booster'))
+        self._attr_unique_id = f'{device_data.serial_number}--high-radio-power'
+        self.entity_description = HIGH_RADIO_POWER_DESCRIPTION
+
+    @property
+    def name(self):
+        """Sensor name."""
+        return 'High radio power'
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return true if the repeater is in high radio power mode."""
+        data = self._device_data()
+        return None if data is None else data.high_radio_power

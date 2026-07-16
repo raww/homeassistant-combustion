@@ -120,11 +120,11 @@ def _gauge_bits(
 
 
 @pytest.mark.asyncio
-async def test_booster_advertisement_ignored(hass: HomeAssistant):
-    """Booster (product type 5) advertisements must be ignored without errors."""
+async def test_booster_creates_repeater_device(hass: HomeAssistant):
+    """Booster (product type 5) advertisements register the repeater as a device."""
 
     mock_entry = MockConfigEntry(
-        unique_id="test_booster_ignored",
+        unique_id="test_booster_device",
         domain=DOMAIN,
         version=1,
         data={},
@@ -138,7 +138,9 @@ async def test_booster_advertisement_ignored(hass: HomeAssistant):
 
     er = entity_registry.async_get(hass)
     entities = entity_registry.async_entries_for_config_entry(er, entry.entry_id)
-    assert len(entities) == 0
+    unique_ids = {e.unique_id for e in entities}
+    assert 'CR100040A8--rssi' in unique_ids
+    assert 'CR100040A8--high-radio-power' in unique_ids
 
 
 @pytest.mark.asyncio
