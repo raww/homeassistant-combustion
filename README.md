@@ -62,7 +62,13 @@ New features:
 
 There is currently no configuration required for this integration. Once the integration discovers your Combustion device(s), it will prompt you to add them on the Integrations page.
 
-Optional settings live under **Settings → Devices & Services → Combustion → Configure**: the availability timeout (how long a device may stay silent before its entities become unavailable) and the per-device update throttle.
+Optional settings live under **Settings → Devices & Services → Combustion → Configure**: the availability timeout (how long a device may stay silent before its entities become unavailable), the per-device update throttle, and **Enable predictions** (experimental).
+
+### Predictions (experimental)
+
+Combustion's "ready in" prediction — cook target, estimated time to removal, and predicted core temperature — is only available over a **GATT connection** to the probe, which passive Bluetooth proxies (e.g. Shelly) cannot provide. You need a **connectable** path: a local Bluetooth adapter on the Home Assistant host, or an **ESPHome Bluetooth proxy with `active: true`** near the cook.
+
+With **Enable predictions** turned on (and a connectable proxy in range), each probe gains `Prediction`, `Ready in`, `Cook target` and `Estimated core` sensors, populated while the probe is connected and a cook target is set in the Combustion app. Leave it off if you only have passive proxies — it does nothing without a connectable path.
 
 ## Dashboard card
 

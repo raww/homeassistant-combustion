@@ -115,6 +115,16 @@ def _create_gauge_sensors(probe_manager: ProbeManager, gauge_data):
 
     return sensors
 
+def _create_prediction_sensors(prediction_manager, serial: str):
+    sensors: list[CombustionEntity] = [
+        CombustionPredictionStateSensor(prediction_manager, serial),
+        CombustionReadyInSensor(prediction_manager, serial),
+        CombustionSetpointSensor(prediction_manager, serial),
+        CombustionEstimatedCoreSensor(prediction_manager, serial),
+    ]
+    return sensors
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     """Set up the sensor platform."""
     _LOGGER.debug("Starting async_setup_entry")
@@ -129,6 +139,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     probe_manager: ProbeManager = hass.data[DOMAIN]
     probe_manager.init_sensor_platform(_create_sensors_callback)
+
+    prediction_manager = hass.data.get(f"{DOMAIN}_prediction")
+    if prediction_manager is not None:
+        def _create_prediction_callback(prm, serial):
+            async_add_entities(_create_prediction_sensors(prm, serial))
+        prediction_manager.init_sensor_platform(_create_prediction_callback)
 
 class CombustionGaugeTemperatureSensor(CombustionEntity, SensorEntity):
     """Temperature sensor for a Combustion Gauge."""
@@ -489,3 +505,152 @@ class CombustionVirtualSurfaceSensor(BaseCombustionTemperatureSensor):
         return {
             "thermistor_id": thermistor_id
         }
+
+
+# --------------------------------------------------------------------------
+# Prediction sensors (populated over a GATT connection; opt-in only)
+# --------------------------------------------------------------------------
+
+PREDICTION_STATE_DESCRIPTION = SensorEntityDescription(
+    key="prediction_state",
+    device_class=SensorDeviceClass.ENUM,
+    options=['not_inserted', 'inserted', 'warming', 'predicting', 'removal_done'],
+)
+
+READY_IN_DESCRIPTION = SensorEntityDescription(
+    key="ready_in",
+    device_class=SensorDeviceClass.DURATION,
+    native_unit_of_measurement="s",
+)
+
+SETPOINT_DESCRIPTION = SensorEntityDescription(
+    key="prediction_setpoint",
+    device_class=SensorDeviceClass.TEMPERATURE,
+    native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+    suggested_display_precision=1,
+)
+
+
+class BaseCombustionPredictionSensor(CombustionEntity, SensorEntity):
+    """Base for prediction sensors, fed by the prediction manager."""
+
+    def __init__(self, prediction_manager, serial: str) -> None:
+        """Initialize."""
+        super().__init__(serial)
+        self.device_serial_number = serial
+        # CombustionEntity wires update listeners and availability through
+        # `probe_manager`; the prediction manager exposes the same interface.
+        self.probe_manager = prediction_manager
+        self._attr_has_entity_name = True
+
+    def _prediction(self):
+        return self.probe_manager.prediction(self.device_serial_number)
+
+    @property
+    def available(self) -> bool:
+        """Available once a prediction has been received."""
+        return self._prediction() is not None
+
+    @callback
+    def on_update(self):
+        """Process prediction updates."""
+        if self._platform_state == EntityPlatformState.ADDED:
+            self.async_schedule_update_ha_state()
+
+    @property
+    def should_poll(self) -> bool:
+        """Do not poll for updates."""
+        return False
+
+
+class CombustionPredictionStateSensor(BaseCombustionPredictionSensor):
+    """Prediction state (inserted / warming / predicting / done)."""
+
+    def __init__(self, prediction_manager, serial: str) -> None:
+        """Initialize."""
+        super().__init__(prediction_manager, serial)
+        self._attr_unique_id = f'{serial}--prediction-state'
+        self.entity_description = PREDICTION_STATE_DESCRIPTION
+
+    @property
+    def name(self):
+        """Sensor name."""
+        return 'Prediction'
+
+    @property
+    def native_value(self):
+        """Return the prediction state."""
+        p = self._prediction()
+        return p.state if p else None
+
+    @property
+    def extra_state_attributes(self):
+        """Prediction mode/type detail."""
+        p = self._prediction()
+        if p is None:
+            return None
+        return {'mode': p.mode, 'type': p.type}
+
+
+class CombustionReadyInSensor(BaseCombustionPredictionSensor):
+    """Estimated time until the probe reaches its cook target."""
+
+    def __init__(self, prediction_manager, serial: str) -> None:
+        """Initialize."""
+        super().__init__(prediction_manager, serial)
+        self._attr_unique_id = f'{serial}--ready-in'
+        self.entity_description = READY_IN_DESCRIPTION
+
+    @property
+    def name(self):
+        """Sensor name."""
+        return 'Ready in'
+
+    @property
+    def native_value(self):
+        """Return seconds remaining, or None when not predicting."""
+        p = self._prediction()
+        return p.seconds_remaining if p else None
+
+
+class CombustionSetpointSensor(BaseCombustionPredictionSensor):
+    """Cook target (set-point) temperature."""
+
+    def __init__(self, prediction_manager, serial: str) -> None:
+        """Initialize."""
+        super().__init__(prediction_manager, serial)
+        self._attr_unique_id = f'{serial}--prediction-setpoint'
+        self.entity_description = SETPOINT_DESCRIPTION
+
+    @property
+    def name(self):
+        """Sensor name."""
+        return 'Cook target'
+
+    @property
+    def native_value(self):
+        """Return the set-point temperature."""
+        p = self._prediction()
+        return p.setpoint_c if p else None
+
+
+class CombustionEstimatedCoreSensor(BaseCombustionPredictionSensor):
+    """Predicted core temperature."""
+
+    def __init__(self, prediction_manager, serial: str) -> None:
+        """Initialize."""
+        super().__init__(prediction_manager, serial)
+        self._attr_unique_id = f'{serial}--estimated-core'
+        self.entity_description = SETPOINT_DESCRIPTION
+        self._attr_entity_registry_enabled_default = False
+
+    @property
+    def name(self):
+        """Sensor name."""
+        return 'Estimated core'
+
+    @property
+    def native_value(self):
+        """Return the estimated core temperature."""
+        p = self._prediction()
+        return p.estimated_core_c if p else None

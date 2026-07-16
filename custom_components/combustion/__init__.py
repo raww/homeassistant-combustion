@@ -15,12 +15,15 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.loader import async_get_integration
 
 from custom_components.combustion.bluetooth_listener import BluetoothListener
+from custom_components.combustion.prediction_manager import PredictionManager
 from custom_components.combustion.probe_manager import ProbeManager
 
 from .const import (
     CONF_AVAILABILITY_TIMEOUT,
+    CONF_ENABLE_PREDICTIONS,
     CONF_UPDATE_THROTTLE,
     DEFAULT_AVAILABILITY_TIMEOUT,
+    DEFAULT_ENABLE_PREDICTIONS,
     DEFAULT_UPDATE_THROTTLE,
     DOMAIN,
     LOGGER,
@@ -75,6 +78,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     availability_timeout = entry.options.get(CONF_AVAILABILITY_TIMEOUT, DEFAULT_AVAILABILITY_TIMEOUT)
     update_throttle = entry.options.get(CONF_UPDATE_THROTTLE, DEFAULT_UPDATE_THROTTLE)
+    enable_predictions = entry.options.get(CONF_ENABLE_PREDICTIONS, DEFAULT_ENABLE_PREDICTIONS)
 
     listener = BluetoothListener(hass, entry)
     probe_manager = ProbeManager(
@@ -85,11 +89,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN] = probe_manager
 
+    prediction_manager = PredictionManager(hass, entry, probe_manager, bool(enable_predictions))
+    hass.data[f"{DOMAIN}_prediction"] = prediction_manager
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     probe_manager.async_init()
     listener.async_init()
+    prediction_manager.async_init()
 
     # When a device stops advertising, no bluetooth callback fires to push the
     # entities to unavailable; re-notify periodically so availability updates.
@@ -116,6 +124,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Handle removal of an entry."""
     if unloaded := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN] = {}
+        hass.data.pop(f"{DOMAIN}_prediction", None)
     return unloaded
 
 

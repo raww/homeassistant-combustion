@@ -647,3 +647,83 @@ async def test_probe_inserted_detects_fridge_cold_meat(hass: HomeAssistant):
         await hass.async_block_till_done()
         assert hass.states.get(inserted_id).state == 'on'
         assert hass.states.get(cooking_id).state == 'off'
+
+
+def test_prediction_decode_matches_combustion_bit_packing():
+    """The 7-byte prediction status decodes per Combustion's Android library."""
+    from custom_components.combustion.combustion_ble.prediction_data import (
+        PredictionData,
+    )
+
+    # Build a known prediction: state=predicting(3), mode=time_to_removal(1),
+    # type=removal(1), setpoint=65.0C (650), heat_start=10.0C (100),
+    # seconds=1230, est_core=62.5C ((62.5+20)/0.1 = 825).
+    state, mode, ptype = 3, 1, 1
+    setpoint, heatstart, seconds, core = 650, 100, 1230, 825
+    d0 = state | (mode << 4) | (ptype << 6)
+    d1 = setpoint & 0xFF
+    d2 = ((setpoint >> 8) & 0x03) | ((heatstart & 0x3F) << 2)
+    d3 = ((heatstart >> 6) & 0x0F) | ((seconds & 0x0F) << 4)
+    d4 = (seconds >> 4) & 0xFF
+    d5 = ((seconds >> 12) & 0x1F) | ((core & 0x07) << 5)
+    d6 = (core >> 3) & 0xFF
+    raw = bytes([d0, d1, d2, d3, d4, d5, d6])
+
+    p = PredictionData.from_prediction_status(raw)
+    assert p is not None
+    assert p.state == 'predicting'
+    assert p.mode == 'time_to_removal'
+    assert p.type == 'removal'
+    assert p.setpoint_c == 65.0
+    assert p.heat_start_c == 10.0
+    assert p.seconds_remaining == 1230
+    assert p.estimated_core_c == 62.5
+    assert p.is_predicting is True
+
+
+def test_prediction_decode_from_status_characteristic_offset():
+    """Prediction is read from offset 23 of the Probe Status characteristic."""
+    from custom_components.combustion.combustion_ble.prediction_data import (
+        PREDICTION_STATUS_OFFSET,
+        PredictionData,
+    )
+
+    pred7 = bytes([0x01, 0, 0, 0, 0, 0, 0])   # state=inserted, no times
+    packet = bytes(PREDICTION_STATUS_OFFSET) + pred7 + bytes(20)
+    p = PredictionData.from_status_characteristic(packet)
+    assert p is not None
+    assert p.state == 'inserted'
+    assert p.seconds_remaining is None
+    # too-short packet returns None rather than raising
+    assert PredictionData.from_status_characteristic(bytes(10)) is None
+
+
+@pytest.mark.asyncio
+async def test_setup_with_predictions_option_enabled(hass: HomeAssistant):
+    """Setup with predictions enabled must succeed and create the manager."""
+    from custom_components.combustion.const import CONF_ENABLE_PREDICTIONS
+
+    mock_entry = MockConfigEntry(
+        unique_id="test_predictions_enabled",
+        domain=DOMAIN,
+        version=1,
+        data={},
+        options={CONF_ENABLE_PREDICTIONS: True},
+        title="Meatnet",
+    )
+
+    entry = await _setup_config_entry(hass, mock_entry)
+
+    # a passive (non-connectable) advertisement never triggers a connection,
+    # but the probe's own entities must still be created as usual
+    inject_bt_advertisement(hass, create_advertisement(create_combustion_bits(), connectable=False))
+    await hass.async_block_till_done()
+
+    assert hass.data.get(f"{DOMAIN}_prediction") is not None
+    er = entity_registry.async_get(hass)
+    entities = entity_registry.async_entries_for_config_entry(er, entry.entry_id)
+    assert len(entities) == 18   # prediction entities appear only once connected
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.data.get(f"{DOMAIN}_prediction") is None

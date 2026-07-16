@@ -20,7 +20,8 @@
                 "title": "Combustion options",
                 "data": {
                     "availability_timeout": "Seconds without advertisements before entities become unavailable",
-                    "update_throttle": "Minimum seconds between sensor updates per device"
+                    "update_throttle": "Minimum seconds between sensor updates per device",
+                    "enable_predictions": "Enable predictions (requires a connectable Bluetooth proxy or adapter)"
                 }
             }
         }
