@@ -16,6 +16,7 @@ from homeassistant.loader import async_get_integration
 
 from custom_components.combustion.bluetooth_listener import BluetoothListener
 from custom_components.combustion.connection_manager import ConnectionManager
+from custom_components.combustion.control_manager import ControlManager
 from custom_components.combustion.prediction_manager import PredictionManager
 from custom_components.combustion.probe_manager import ProbeManager
 
@@ -32,7 +33,10 @@ from .const import (
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
-    Platform.SENSOR
+    Platform.SENSOR,
+    Platform.NUMBER,
+    Platform.SELECT,
+    Platform.BUTTON,
 ]
 
 FRONTEND_CARD_URL = "/combustion/combustion-card.js"
@@ -96,10 +100,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[f"{DOMAIN}_connection"] = connection_manager
 
     # The entity platforms reach the managers through hass.data[DOMAIN] (the
-    # ProbeManager). Attach them here as the single hand-off seam; the control
-    # manager and active-connection flag are populated by later tasks.
+    # ProbeManager). Attach them here as the single hand-off seam.
     probe_manager.connection_manager = connection_manager
-    probe_manager.control_manager = None
+    probe_manager.control_manager = ControlManager(connection_manager)
     probe_manager.active_enabled = bool(enable_active_connection)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

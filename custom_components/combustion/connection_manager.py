@@ -45,6 +45,9 @@ class ConnectionManager:
         self._addresses: dict[str, str] = {}
         self._tasks: dict[str, asyncio.Task] = {}
         self._conn_listeners: list[Callable] = []
+        self._new_probe_listeners: list[Callable] = []
+        self._seen_probes: set[str] = set()
+        self._probe_data: dict[str, CombustionProbeData] = {}
 
     def async_init(self) -> None:
         """Register the connectable advert callback (only when enabled)."""
@@ -78,6 +81,17 @@ class ConnectionManager:
 
         return _remove
 
+    def add_new_probe_listener(self, callback) -> None:  # noqa: A002
+        """Register callback(probe_data) fired once per newly-connected probe.
+
+        Fires immediately for probes already connected when the listener registers.
+        """
+        self._new_probe_listeners.append(callback)
+        for serial in self._seen_probes:
+            pd = self._probe_data.get(serial)
+            if pd is not None:
+                callback(pd)
+
     def is_connected(self, serial: str) -> bool:
         """Whether a live client exists for this probe serial."""
         return serial in self._clients
@@ -100,6 +114,7 @@ class ConnectionManager:
             return
         serial = probe_data.serial_number
         self._addresses[serial] = service_info.address
+        self._probe_data[serial] = probe_data
         task = self._tasks.get(serial)
         if task is None or task.done():
             self._tasks[serial] = self.entry.async_create_background_task(
@@ -154,6 +169,12 @@ class ConnectionManager:
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("start_notify failed for %s on [%s]", char, serial, exc_info=True)
         self._notify_conn_listeners()
+        if serial not in self._seen_probes:
+            self._seen_probes.add(serial)
+            pd = self._probe_data.get(serial)
+            if pd is not None:
+                for cb in list(self._new_probe_listeners):
+                    cb(pd)
 
     def _on_disconnected(self, serial: str) -> None:
         """Drop the live client and notify listeners."""
@@ -208,6 +229,9 @@ class ConnectionManager:
     async def _async_shutdown(self) -> None:
         """Cancel all connection tasks on unload."""
         self._conn_listeners.clear()
+        self._new_probe_listeners.clear()
+        self._seen_probes.clear()
+        self._probe_data.clear()
         for task in self._tasks.values():
             task.cancel()
         self._tasks.clear()

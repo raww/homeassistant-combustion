@@ -78,3 +78,26 @@ async def test_connection_listener_fires_on_state_change(hass):
     mgr._on_disconnected("SERIAL1")
     assert mgr.is_connected("SERIAL1") is False
     assert ticks == [True, False]
+
+
+@pytest.mark.asyncio
+async def test_new_probe_listener_fires_once_on_first_connect(hass):
+    """A new-probe listener fires once on first connect, not on reconnect, and immediately for late registrants."""
+    mgr = _manager(hass)
+    probe_data = object()
+    mgr._probe_data["S1"] = probe_data
+
+    seen = []
+    mgr.add_new_probe_listener(seen.append)
+
+    await mgr._on_connected("S1", _FakeClient())
+    assert seen == [probe_data]
+
+    # a second connect for the same serial (e.g. reconnect) must not re-fire
+    await mgr._on_connected("S1", _FakeClient())
+    assert seen == [probe_data]
+
+    # a listener registered after the probe was already seen fires immediately
+    late_seen = []
+    mgr.add_new_probe_listener(late_seen.append)
+    assert late_seen == [probe_data]

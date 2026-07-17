@@ -99,4 +99,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     probe_manager = hass.data[DOMAIN]
     if not getattr(probe_manager, "active_enabled", False):
         return
-    # Task 13 wires the per-probe create callback here.
+    conn = probe_manager.connection_manager
+    control = probe_manager.control_manager
+
+    def _create(probe_data):
+        async_add_entities([
+            CombustionTargetTemperature(
+                conn, control, probe_data, default_mode=PredictionMode.TIME_TO_REMOVAL
+            ),
+            CombustionHighAlarm(conn, control, probe_data),
+            CombustionLowAlarm(conn, control, probe_data),
+        ])
+
+    conn.add_new_probe_listener(_create)

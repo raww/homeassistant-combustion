@@ -6,7 +6,7 @@ from homeassistant.helpers import entity_registry
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.combustion.const import DOMAIN
+from custom_components.combustion.const import CONF_ENABLE_ACTIVE_CONNECTION, DOMAIN
 from tests.utils.bt_utils import (
     create_advertisement,
     create_combustion_bits,
@@ -620,3 +620,35 @@ async def test_setup_with_predictions_option_enabled(hass: HomeAssistant):
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert hass.data.get(f"{DOMAIN}_prediction") is None
+
+
+@pytest.mark.asyncio
+async def test_active_connection_setup_creates_no_entities_until_connect(hass: HomeAssistant):
+    """Control platforms register with active connection enabled but stay empty until a GATT connect happens."""
+    mock_entry = MockConfigEntry(
+        unique_id="test_active_connection_no_entities",
+        domain=DOMAIN,
+        version=1,
+        data={},
+        options={CONF_ENABLE_ACTIVE_CONNECTION: True},
+        title="Meatnet",
+    )
+
+    entry = await _setup_config_entry(hass, mock_entry)
+
+    # a normal (non-connectable) advertisement is enough to create the usual
+    # probe/gauge entities, but must never create control entities: those
+    # only appear once a real GATT connection happens, which tests never do.
+    inject_bt_advertisement(hass, create_advertisement(create_combustion_bits(), connectable=False))
+    await hass.async_block_till_done()
+
+    er = entity_registry.async_get(hass)
+    entities = entity_registry.async_entries_for_config_entry(er, entry.entry_id)
+    assert len(entities) > 0
+
+    number_entities = [e for e in entities if e.domain == 'number']
+    select_entities = [e for e in entities if e.domain == 'select']
+    button_entities = [e for e in entities if e.domain == 'button']
+    assert number_entities == []
+    assert select_entities == []
+    assert button_entities == []

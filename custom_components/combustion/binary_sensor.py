@@ -89,6 +89,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     probe_manager: ProbeManager = hass.data[DOMAIN]
     probe_manager.init_binary_sensor_platform(_create_sensors_callback)
 
+    if getattr(probe_manager, "active_enabled", False):
+        conn = probe_manager.connection_manager
+        conn.add_new_probe_listener(
+            lambda probe_data: async_add_entities([CombustionConnectedSensor(conn, probe_data)])
+        )
+
 
 class BaseCombustionBinarySensor(CombustionEntity, BinarySensorEntity):
     """Base class for combustion binary sensors."""
