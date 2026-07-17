@@ -110,14 +110,13 @@ class CombustionProbeData:
 
     @property
     def overheating(self) -> bool:
-        """Whether any thermistor is overheating."""
-        return self.advertising_data.overheating_mask != 0
+        """Whether any thermistor is at or above its overheating threshold."""
+        return bool(self.advertising_data.temperatures.overheating_indices())
 
     @property
     def overheating_sensor_numbers(self) -> list[int]:
         """1-based thermistor numbers currently overheating (T1..T8)."""
-        mask = self.advertising_data.overheating_mask
-        return [i + 1 for i in range(8) if mask & (1 << i)]
+        return [i + 1 for i in self.advertising_data.temperatures.overheating_indices()]
 
     @property
     def battery_ok(self) -> bool:

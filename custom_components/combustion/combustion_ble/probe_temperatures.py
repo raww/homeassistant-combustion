@@ -1,11 +1,25 @@
 """Probe temperature data."""
 
+# Per-thermistor overheating thresholds (°C), from the Combustion reference SDKs
+# (OverheatingSensors): T1/T2 105, T3 115, T4 125, T5-T8 315.56. Real probe
+# advertisements do NOT carry an overheating flag — it is derived from the
+# decoded temperatures against these thresholds.
+OVERHEATING_THRESHOLDS_C = [105.0, 105.0, 115.0, 125.0, 315.56, 315.56, 315.56, 315.56]
+
+
 class ProbeTemperatures:
     """Temperature values for a single probe."""
 
     def __init__(self, values: list[float]):
         """Initialize."""
         self.values = values
+
+    def overheating_indices(self) -> list[int]:
+        """0-based indices of thermistors at or above their overheating threshold."""
+        return [
+            i for i, temp in enumerate(self.values)
+            if i < len(OVERHEATING_THRESHOLDS_C) and temp >= OVERHEATING_THRESHOLDS_C[i]
+        ]
 
     @staticmethod
     def from_reversed(bytes_: list[int]) -> 'ProbeTemperatures':

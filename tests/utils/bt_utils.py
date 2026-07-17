@@ -128,7 +128,6 @@ def create_combustion_bits(
         ambient_sensor_id: int = 7,
         surface_sensor_id: int = 5,
         battery_ok: bool = True,
-        overheating_mask: int = 0
     ):
     """Create a bit representation for use in a BT advertisement."""
     device_type = CombustionProductType[device_type].value.to_bytes(1)
@@ -183,9 +182,9 @@ def create_combustion_bits(
 
     network_info_byte = Bits(int.to_bytes(0))
 
-    overheating_byte = Bits(int.to_bytes(overheating_mask & 0xFF, 1))
-
-    return  (device_type + serial_number + temperatures + mode_id + battery_virtual_byte + network_info_byte + overheating_byte).tobytes()
+    # Real probe advertisements end at the network-info byte (no overheating
+    # byte); overheating is derived from the decoded temperatures.
+    return  (device_type + serial_number + temperatures + mode_id + battery_virtual_byte + network_info_byte).tobytes()
 
 
 

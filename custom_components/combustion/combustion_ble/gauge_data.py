@@ -67,7 +67,9 @@ class GaugeData(NamedTuple):
         sensor_overheating = bool(flags & 0x2)
         battery_low = bool(flags & 0x4)
 
-        raw_temperature = int.from_bytes(data[13:15], byteorder='little') & 0x1FFF
+        # Full 16-bit little-endian value (reference SensorTemperature.fromRawDataStart);
+        # unlike the alarm words, the gauge primary temperature is not bit-shifted.
+        raw_temperature = int.from_bytes(data[13:15], byteorder='little')
         # Per spec the temperature value is meaningless while no sensor is attached.
         temperature = (raw_temperature * 0.1 - 20.0) if sensor_present else None
 

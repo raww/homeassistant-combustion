@@ -615,9 +615,14 @@ class CombustionReadyInSensor(BaseCombustionPredictionSensor):
 
     @property
     def native_value(self):
-        """Return seconds remaining, or None when not predicting."""
+        """Return seconds remaining, or None when not predicting.
+
+        Gated on ``is_predicting`` so it only surfaces a value (including a
+        legitimate 0 at the ready moment) while the probe is actually
+        predicting, not whenever the raw field happens to read 0.
+        """
         p = self._prediction()
-        return p.seconds_remaining if p else None
+        return p.seconds_remaining if (p and p.is_predicting) else None
 
 
 class CombustionSetpointSensor(BaseCombustionPredictionSensor):

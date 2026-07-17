@@ -70,7 +70,9 @@ class PredictionData(NamedTuple):
         raw_seconds = ((d[3] & 0xF0) >> 4) | (d[4] << 4) | ((d[5] & 0x1F) << 12)
         raw_core = ((d[5] & 0xE0) >> 5) | (d[6] << 3)
 
-        seconds = raw_seconds if 0 < raw_seconds <= PREDICTION_MAX_SECONDS else None
+        # 0 is a valid "ready now" reading (the reference SDKs do not exclude it);
+        # only cap absurdly long values, treating them as no prediction.
+        seconds = raw_seconds if 0 <= raw_seconds <= PREDICTION_MAX_SECONDS else None
 
         return PredictionData(
             state=state,

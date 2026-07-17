@@ -440,8 +440,10 @@ async def test_mode_and_overheating_sensors(hass: HomeAssistant):
 
     assert hass.states.get(overheat_id).state == 'off'
 
-    # T2 and T8 overheating
-    hot = create_advertisement(create_combustion_bits(overheating_mask=0b10000010))
+    # T2 (>=105C) and T8 (>=315.56C) over their thresholds; others below.
+    hot = create_advertisement(create_combustion_bits(
+        temperature_data=[20.0, 110.0, 22.2, 23.3, 24.4, 25.5, 26.6, 320.0],
+    ))
     with patch(
         'custom_components.combustion.probe_manager.time.monotonic',
         return_value=real_time.monotonic() + 10.0,
@@ -586,7 +588,10 @@ def test_prediction_decode_from_status_characteristic_offset():
     p = PredictionData.from_status_characteristic(packet)
     assert p is not None
     assert p.state == 'inserted'
-    assert p.seconds_remaining is None
+    # 0 is now a valid raw reading (matches the reference); it is 'inserted',
+    # not 'predicting', so is_predicting stays false.
+    assert p.seconds_remaining == 0
+    assert p.is_predicting is False
     # too-short packet returns None rather than raising
     assert PredictionData.from_status_characteristic(bytes(10)) is None
 

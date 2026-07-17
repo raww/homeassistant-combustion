@@ -44,8 +44,6 @@ class AdvertisingData(NamedTuple):
     mode_id: ModeId
     battery_status_virtual_sensors: BatteryStatusVirtualSensors
     hop_count: HopCount
-    # Overheating sensors mask; bit 1 (LSB) = T1 ... bit 8 = T8.
-    overheating_mask: int = 0
 
     @staticmethod
     def from_data(data: bytes) -> Optional['AdvertisingData']:
@@ -82,7 +80,6 @@ class AdvertisingData(NamedTuple):
         # Hop Count
         hop_count = HopCount.from_network_info_byte(data[22]) if len(data) >= 23 else HopCount.default_values()
 
-        # Overheating Sensors
-        overheating_mask = data[23] if len(data) >= 24 else 0
-
-        return AdvertisingData(type=product_type, serial_number=serial_number, temperatures=temperatures, mode_id=mode_id, battery_status_virtual_sensors=battery_status_virtual_sensors, hop_count=hop_count, overheating_mask=overheating_mask)
+        # Overheating is derived from the decoded temperatures (see
+        # ProbeTemperatures.overheating_indices); advertisements carry no flag.
+        return AdvertisingData(type=product_type, serial_number=serial_number, temperatures=temperatures, mode_id=mode_id, battery_status_virtual_sensors=battery_status_virtual_sensors, hop_count=hop_count)
