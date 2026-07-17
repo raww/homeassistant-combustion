@@ -4,15 +4,15 @@ from __future__ import annotations
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfTemperature
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .combustion_ble.uart import PredictionMode
 from .const import DOMAIN
-from .entity import CombustionEntity
+from .entity import CombustionConnectionGatedEntity
 
 
-class CombustionTargetTemperature(CombustionEntity, NumberEntity):
+class CombustionTargetTemperature(CombustionConnectionGatedEntity, NumberEntity):
     """Writable cook target temperature (Set Prediction)."""
 
     _attr_has_entity_name = True
@@ -25,38 +25,15 @@ class CombustionTargetTemperature(CombustionEntity, NumberEntity):
 
     def __init__(self, connection_manager, control_manager, device_data, default_mode: PredictionMode) -> None:
         """Initialize."""
-        super().__init__(device_data.serial_number)
-        self._conn = connection_manager
+        super().__init__(connection_manager, device_data)
         self._control = control_manager
-        self._serial = device_data.serial_number
         self._default_mode = default_mode
-        self.device_serial_number = device_data.serial_number
         self._attr_unique_id = f"{device_data.serial_number}--target-temperature"
 
     @property
     def name(self):
         """Entity name."""
         return "Target temperature"
-
-    @property
-    def available(self) -> bool:
-        """Only available while actively connected."""
-        return self._conn.is_connected(self._serial)
-
-    async def async_added_to_hass(self) -> None:
-        """Update state when the probe's connection state changes.
-
-        This entity has no `probe_manager`, so it does NOT call the base
-        `CombustionEntity.async_added_to_hass`, which would try to register a
-        listener against a nonexistent `probe_manager` attribute. Instead it
-        listens directly on the `ConnectionManager` for connect/disconnect.
-        """
-        self.async_on_remove(self._conn.add_connection_listener(self._handle_conn_update))
-
-    @callback
-    def _handle_conn_update(self) -> None:
-        """Refresh HA state on a connection change."""
-        self.async_write_ha_state()
 
     async def async_set_native_value(self, value: float) -> None:
         """Send a new target temperature to the probe."""

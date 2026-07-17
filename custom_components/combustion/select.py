@@ -4,12 +4,12 @@ from __future__ import annotations
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .combustion_ble.uart import PowerMode, PredictionMode
 from .const import DOMAIN
-from .entity import CombustionEntity
+from .entity import CombustionConnectionGatedEntity
 
 _MODE_OPTIONS = {
     "Off": PredictionMode.NONE,
@@ -25,7 +25,7 @@ _POWER_MODE_OPTIONS = {
 }
 
 
-class CombustionModeSelect(CombustionEntity, SelectEntity):
+class CombustionModeSelect(CombustionConnectionGatedEntity, SelectEntity):
     """Writable prediction mode (Off / Time to removal / Removal and resting)."""
 
     _attr_has_entity_name = True
@@ -34,11 +34,8 @@ class CombustionModeSelect(CombustionEntity, SelectEntity):
 
     def __init__(self, connection_manager, control_manager, device_data) -> None:
         """Initialize."""
-        super().__init__(device_data.serial_number)
-        self._conn = connection_manager
+        super().__init__(connection_manager, device_data)
         self._control = control_manager
-        self._serial = device_data.serial_number
-        self.device_serial_number = device_data.serial_number
         self._attr_unique_id = f"{device_data.serial_number}--prediction-mode"
 
     @property
@@ -46,32 +43,12 @@ class CombustionModeSelect(CombustionEntity, SelectEntity):
         """Entity name."""
         return "Prediction mode"
 
-    @property
-    def available(self) -> bool:
-        """Only available while actively connected."""
-        return self._conn.is_connected(self._serial)
-
-    async def async_added_to_hass(self) -> None:
-        """Update state when the probe's connection state changes.
-
-        This entity has no `probe_manager`, so it does NOT call the base
-        `CombustionEntity.async_added_to_hass`, which would try to register a
-        listener against a nonexistent `probe_manager` attribute. Instead it
-        listens directly on the `ConnectionManager` for connect/disconnect.
-        """
-        self.async_on_remove(self._conn.add_connection_listener(self._handle_conn_update))
-
-    @callback
-    def _handle_conn_update(self) -> None:
-        """Refresh HA state on a connection change."""
-        self.async_write_ha_state()
-
     async def async_select_option(self, option: str) -> None:
         """Send the mapped prediction mode to the probe."""
         await self._control.async_set_mode(self._serial, _MODE_OPTIONS[option])
 
 
-class CombustionColourSelect(CombustionEntity, SelectEntity):
+class CombustionColourSelect(CombustionConnectionGatedEntity, SelectEntity):
     """Writable probe colour (Color 1..8)."""
 
     _attr_has_entity_name = True
@@ -80,11 +57,8 @@ class CombustionColourSelect(CombustionEntity, SelectEntity):
 
     def __init__(self, connection_manager, control_manager, device_data) -> None:
         """Initialize."""
-        super().__init__(device_data.serial_number)
-        self._conn = connection_manager
+        super().__init__(connection_manager, device_data)
         self._control = control_manager
-        self._serial = device_data.serial_number
-        self.device_serial_number = device_data.serial_number
         self._attr_unique_id = f"{device_data.serial_number}--probe-colour"
 
     @property
@@ -92,32 +66,12 @@ class CombustionColourSelect(CombustionEntity, SelectEntity):
         """Entity name."""
         return "Probe colour"
 
-    @property
-    def available(self) -> bool:
-        """Only available while actively connected."""
-        return self._conn.is_connected(self._serial)
-
-    async def async_added_to_hass(self) -> None:
-        """Update state when the probe's connection state changes.
-
-        This entity has no `probe_manager`, so it does NOT call the base
-        `CombustionEntity.async_added_to_hass`, which would try to register a
-        listener against a nonexistent `probe_manager` attribute. Instead it
-        listens directly on the `ConnectionManager` for connect/disconnect.
-        """
-        self.async_on_remove(self._conn.add_connection_listener(self._handle_conn_update))
-
-    @callback
-    def _handle_conn_update(self) -> None:
-        """Refresh HA state on a connection change."""
-        self.async_write_ha_state()
-
     async def async_select_option(self, option: str) -> None:
         """Send the mapped colour index to the probe."""
         await self._control.async_set_probe_colour(self._serial, _COLOUR_OPTIONS[option])
 
 
-class CombustionPowerModeSelect(CombustionEntity, SelectEntity):
+class CombustionPowerModeSelect(CombustionConnectionGatedEntity, SelectEntity):
     """Writable power mode (Normal / Always on)."""
 
     _attr_has_entity_name = True
@@ -126,37 +80,14 @@ class CombustionPowerModeSelect(CombustionEntity, SelectEntity):
 
     def __init__(self, connection_manager, control_manager, device_data) -> None:
         """Initialize."""
-        super().__init__(device_data.serial_number)
-        self._conn = connection_manager
+        super().__init__(connection_manager, device_data)
         self._control = control_manager
-        self._serial = device_data.serial_number
-        self.device_serial_number = device_data.serial_number
         self._attr_unique_id = f"{device_data.serial_number}--power-mode"
 
     @property
     def name(self):
         """Entity name."""
         return "Power mode"
-
-    @property
-    def available(self) -> bool:
-        """Only available while actively connected."""
-        return self._conn.is_connected(self._serial)
-
-    async def async_added_to_hass(self) -> None:
-        """Update state when the probe's connection state changes.
-
-        This entity has no `probe_manager`, so it does NOT call the base
-        `CombustionEntity.async_added_to_hass`, which would try to register a
-        listener against a nonexistent `probe_manager` attribute. Instead it
-        listens directly on the `ConnectionManager` for connect/disconnect.
-        """
-        self.async_on_remove(self._conn.add_connection_listener(self._handle_conn_update))
-
-    @callback
-    def _handle_conn_update(self) -> None:
-        """Refresh HA state on a connection change."""
-        self.async_write_ha_state()
 
     async def async_select_option(self, option: str) -> None:
         """Send the mapped power mode to the probe."""
