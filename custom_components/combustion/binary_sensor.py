@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from custom_components.combustion.probe_manager import ProbeManager
 
 from .const import DOMAIN, LOGGER
-from .entity import CombustionEntity
+from .entity import CombustionConnectionGatedEntity, CombustionEntity
 
 _LOGGER = LOGGER.getChild('binary_sensor')
 
@@ -269,3 +269,37 @@ class CombustionHighRadioPowerSensor(BaseCombustionBinarySensor):
         """Return true if the repeater is in high radio power mode."""
         data = self._device_data()
         return None if data is None else data.high_radio_power
+
+
+class CombustionConnectedSensor(CombustionConnectionGatedEntity, BinarySensorEntity):
+    """Diagnostic sensor reporting the probe's BLE connection state.
+
+    Unlike the number/select/button control entities that share
+    `CombustionConnectionGatedEntity`, this sensor's entire purpose is to
+    report whether the device is connected, so it must stay available even
+    while disconnected -- otherwise it could never show "disconnected".
+    """
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, connection_manager, device_data) -> None:
+        """Initialize."""
+        super().__init__(connection_manager, device_data)
+        self._attr_unique_id = f'{device_data.serial_number}--connected'
+
+    @property
+    def available(self) -> bool:
+        """Always available, so it can report the disconnected state too."""
+        return True
+
+    @property
+    def name(self):
+        """Sensor name."""
+        return 'Connected'
+
+    @property
+    def is_on(self) -> bool:
+        """Return true if currently connected over BLE."""
+        return self._conn.is_connected(self._serial)
