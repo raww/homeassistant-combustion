@@ -17,6 +17,7 @@ from homeassistant.exceptions import HomeAssistantError
 from custom_components.combustion.combustion_ble.combustion_probe_data import (
     CombustionProbeData,
 )
+from custom_components.combustion.combustion_ble.uart import parse_response
 from custom_components.combustion.const import BT_MANUFACTURER_ID, LOGGER
 from custom_components.combustion.probe_manager import ProbeManager
 
@@ -31,6 +32,7 @@ class ConnectionManager:
     """Maintain connectable probe connections and expose subscribe/send seams."""
 
     UART_RX_CHAR = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    UART_TX_CHAR = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
 
     def __init__(
         self, hass: HomeAssistant, entry: ConfigEntry, probe_manager: ProbeManager, enabled: bool
@@ -65,7 +67,21 @@ class ConnectionManager:
         except Exception:  # noqa: BLE001
             _LOGGER.warning("Could not register connectable callback; active connection disabled", exc_info=True)
             return
+        # Match the reference app: always enable UART TX notifications, which is
+        # where command responses (with a success/fail byte) arrive.
+        self.subscribe(self.UART_TX_CHAR, self._on_uart_response)
         self.entry.async_on_unload(self._async_shutdown)
+
+    def _on_uart_response(self, serial: str, data: bytes) -> None:
+        """Log the probe's response to a UART command (accept/reject)."""
+        response = parse_response(data)
+        if response is None:
+            _LOGGER.debug("UART response from [%s] not parseable: %s", serial, data.hex())
+            return
+        _LOGGER.info(
+            "UART response from [%s]: type=0x%02x success=%s",
+            serial, response.msg_type, response.success,
+        )
 
     def subscribe(self, char_uuid: str, handler: Callable) -> None:
         """Register a notify handler `(serial, data: bytes)` for a characteristic."""
@@ -192,11 +208,11 @@ class ConnectionManager:
     async def async_send_command(self, serial: str, frame: bytes) -> None:
         """Write a UART command to a probe, raising if it is not connected.
 
-        This is fire-and-forget: it writes the command frame and does NOT
-        read the device's response. Combustion device responses arrive as
-        separate notifications on the UART TX characteristic, not as GATT
-        write-responses; reading them is out of scope for now and left as
-        future work.
+        The write uses write-*without*-response, matching the Combustion
+        reference apps: the Nordic UART RX characteristic is write-without-
+        response, and forcing write-with-response can be silently rejected.
+        The probe's acknowledgement arrives asynchronously as a notification
+        on the UART TX characteristic (see ``_on_uart_response``).
         """
         client = self._clients.get(serial)
         if client is None:
@@ -214,7 +230,7 @@ class ConnectionManager:
             if client is None:
                 raise HomeAssistantError(f"{serial} is not connected")
         try:
-            await client.write_gatt_char(self.UART_RX_CHAR, frame, response=True)
+            await client.write_gatt_char(self.UART_RX_CHAR, frame, response=False)
         except Exception as err:  # noqa: BLE001
             raise HomeAssistantError(f"Failed to send command to {serial}: {err}") from err
 

@@ -18,8 +18,8 @@ class _FakeClient:
         self.notifications[char] = handler
 
     async def write_gatt_char(self, char, data, response=True):
-        """Record a GATT write."""
-        self.written.append((char, bytes(data)))
+        """Record a GATT write, including the response mode."""
+        self.written.append((char, bytes(data), response))
 
     async def disconnect(self):
         """Mark the fake client as disconnected."""
@@ -56,7 +56,21 @@ async def test_send_command_writes_when_connected(hass):
     await mgr._on_connected("SERIAL1", client)
     frame = b"\xca\xfe\x00\x00\x0c\x00"
     await mgr.async_send_command("SERIAL1", frame)
-    assert client.written[0] == (ConnectionManager.UART_RX_CHAR, frame)
+    # Writes must be write-without-response, matching the Combustion reference app.
+    assert client.written[0] == (ConnectionManager.UART_RX_CHAR, frame, False)
+
+
+@pytest.mark.asyncio
+async def test_uart_response_handler_parses_without_error(hass):
+    """The UART TX response handler parses an ack frame and tolerates junk."""
+    from combustion.combustion_ble.uart import crc16_ccitt
+
+    mgr = _manager(hass)
+    body = bytes([0x05, 0x01, 0x00])  # type=SET_PREDICTION, success=1, len=0
+    crc = crc16_ccitt(body)
+    frame = bytes([0xCA, 0xFE, crc & 0xFF, (crc >> 8) & 0xFF]) + body
+    mgr._on_uart_response("SERIAL1", frame)  # valid ack: must not raise
+    mgr._on_uart_response("SERIAL1", b"\x00\x01\x02")  # junk: must not raise
 
 
 @pytest.mark.asyncio
