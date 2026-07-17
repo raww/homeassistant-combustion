@@ -6,6 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .combustion_ble.uart import PowerMode, PredictionMode
 from .const import DOMAIN
@@ -25,7 +26,7 @@ _POWER_MODE_OPTIONS = {
 }
 
 
-class CombustionModeSelect(CombustionConnectionGatedEntity, SelectEntity):
+class CombustionModeSelect(CombustionConnectionGatedEntity, RestoreEntity, SelectEntity):
     """Writable prediction mode (Off / Time to removal / Removal and resting)."""
 
     _attr_has_entity_name = True
@@ -45,7 +46,17 @@ class CombustionModeSelect(CombustionConnectionGatedEntity, SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         """Send the mapped prediction mode to the probe."""
+        self._attr_current_option = option
         await self._control.async_set_mode(self._serial, _MODE_OPTIONS[option])
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the last displayed option (not seeded into ControlManager: it has no target to send)."""
+        self.async_on_remove(self._conn.add_connection_listener(self._handle_conn_update))
+        last = await self.async_get_last_state()
+        if last is not None and last.state in self._attr_options:
+            self._attr_current_option = last.state
 
 
 class CombustionColourSelect(CombustionConnectionGatedEntity, SelectEntity):

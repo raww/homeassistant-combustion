@@ -19,6 +19,18 @@ class _Conn:
         """Return the configured connected state."""
         return self._connected
 
+    def add_connection_listener(self, callback):
+        """Return a no-op remover, matching the real ConnectionManager's API."""
+        return lambda: None
+
+
+class _LastState:
+    """Fake restored state object mimicking homeassistant.core.State."""
+
+    def __init__(self, state):
+        """Initialize with the given state string."""
+        self.state = state
+
 
 class _Control:
     """Fake control manager recording calls to each setter."""
@@ -85,3 +97,20 @@ async def test_available_reflects_connection():
 
     ent2 = CombustionModeSelect(_Conn(connected=False), control, _DeviceData())
     assert ent2.available is False
+
+
+@pytest.mark.asyncio
+async def test_mode_select_restores_option():
+    """On restart, the mode select restores its last displayed option (no ControlManager seed)."""
+    control = _Control()
+    ent = CombustionModeSelect(_Conn(), control, _DeviceData())
+
+    async def _fake_last_state():
+        return _LastState("Removal and resting")
+
+    ent.async_get_last_state = _fake_last_state
+
+    await ent.async_added_to_hass()
+
+    assert ent.current_option == "Removal and resting"
+    assert control.mode_calls == []

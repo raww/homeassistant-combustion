@@ -81,6 +81,7 @@ Turning it on also enables writable **control entities** for each probe, created
 - **Gauge alarms aren't supported yet** — the gauge uses a different message format and isn't connected for control at this time.
 - **No disable path for alarms** in this release: setting a High or Low alarm enables it, and there's currently no way to turn it back off from Home Assistant.
 - Holding an active connection uses more probe battery and competes with the Combustion phone app for the probe's single connection slot.
+- **Target temperature and alarm setpoints survive a Home Assistant restart or reload**: the entities restore and display their last-set value, and re-sending one alarm no longer silently clears the other. Changing the prediction mode still requires a target temperature to be set first (in this session or a prior one) — there's no default to fall back to.
 
 ## Dashboard card
 

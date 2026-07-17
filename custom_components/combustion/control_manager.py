@@ -1,6 +1,8 @@
 """Map HA control actions to UART commands over the shared connection."""
 from __future__ import annotations
 
+from homeassistant.exceptions import HomeAssistantError
+
 from custom_components.combustion.combustion_ble import uart
 from custom_components.combustion.combustion_ble.uart import (
     CORE_SENSOR_INDEX,
@@ -27,10 +29,28 @@ class ControlManager:
     async def async_set_mode(self, serial: str, mode: PredictionMode) -> None:
         """Change prediction mode, keeping the last-known target temperature.
 
-        If no target has been set yet for this serial, it defaults to 0.0°C.
+        Raises if no target is known yet for this serial (fresh restart with
+        nothing remembered): sending a fabricated 0.0°C target would silently
+        overwrite the real cook target on the probe.
         """
-        temp_c, _ = self._target.get(serial, (0.0, mode))
+        if serial not in self._target:
+            raise HomeAssistantError("Set a target temperature before changing the prediction mode")
+        temp_c, _ = self._target[serial]
         await self.async_set_target(serial, temp_c, mode)
+
+    def remember_target(self, serial: str, temp_c: float, mode: PredictionMode) -> None:
+        """Seed the remembered target/mode without sending a command (used on restore)."""
+        self._target[serial] = (temp_c, mode)
+
+    def remember_high_alarm(self, serial: str, temp_c: float) -> None:
+        """Seed the remembered high-alarm threshold without sending a command."""
+        alarms = self._alarms.setdefault(serial, {"high": None, "low": None})
+        alarms["high"] = temp_c
+
+    def remember_low_alarm(self, serial: str, temp_c: float) -> None:
+        """Seed the remembered low-alarm threshold without sending a command."""
+        alarms = self._alarms.setdefault(serial, {"high": None, "low": None})
+        alarms["low"] = temp_c
 
     async def async_silence(self, serial: str) -> None:
         """Silence active alarms."""
