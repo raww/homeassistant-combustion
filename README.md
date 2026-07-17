@@ -36,6 +36,7 @@ New features:
 - **Bundled dashboard card** styled after the Combustion hardware — probes render as the square WiFi Display, the Grill Gauge as its round dial. See [Dashboard card](#dashboard-card).
 - **Instant Read temperature sensor** — quick-read temperatures now reach Home Assistant.
 - **Probe diagnostics**: mode sensor (normal / instant read / error) with probe ID and ring colour, and a per-probe overheating sensor.
+- **Device control (beta)**: set the cook target, prediction mode, alarms, and more from Home Assistant over an active Bluetooth connection. See [Active connection: predictions + control](#active-connection-predictions--control-experimental).
 
 ## Installation
 
@@ -63,13 +64,23 @@ New features:
 
 There is currently no configuration required for this integration. Once the integration discovers your Combustion device(s), it will prompt you to add them on the Integrations page.
 
-Optional settings live under **Settings → Devices & Services → Combustion → Configure**: the availability timeout (how long a device may stay silent before its entities become unavailable), the per-device update throttle, and **Enable predictions** (experimental).
+Optional settings live under **Settings → Devices & Services → Combustion → Configure**: the availability timeout (how long a device may stay silent before its entities become unavailable), the per-device update throttle, and **Active connection** — predictions + device control (experimental; see below).
 
-### Predictions (experimental)
+### Active connection: predictions + control (experimental)
 
-Combustion's "ready in" prediction — cook target, estimated time to removal, and predicted core temperature — is only available over a **GATT connection** to the probe, which passive Bluetooth proxies (e.g. Shelly) cannot provide. You need a **connectable** path: a local Bluetooth adapter on the Home Assistant host, or an **ESPHome Bluetooth proxy with `active: true`** near the cook.
+Combustion's "ready in" prediction — cook target, estimated time to removal, and predicted core temperature — plus device control are only available over a **GATT connection** to the probe, which passive Bluetooth proxies (e.g. Shelly) cannot provide. You need a **connectable** path: a local Bluetooth adapter on the Home Assistant host, or an **ESPHome Bluetooth proxy with `active: true`** near the cook.
 
-With **Enable predictions** turned on (and a connectable proxy in range), each probe gains `Prediction`, `Ready in`, `Cook target` and `Estimated core` sensors, populated while the probe is connected and a cook target is set in the Combustion app. Leave it off if you only have passive proxies — it does nothing without a connectable path.
+With **Active connection** turned on (and a connectable proxy in range), each probe gains `Prediction`, `Ready in`, `Cook target` and `Estimated core` sensors, populated while the probe is connected and a cook target is set in the Combustion app. Leave it off if you only have passive proxies — it does nothing without a connectable path.
+
+Turning it on also enables writable **control entities** for each probe, created while HA holds a GATT connection to it: `number` entities for **Target temperature** (cook-to setpoint), **High alarm** and **Low alarm**; `select` entities for **Prediction mode** (Off / Time to removal / Removal and resting), **Probe colour** and **Power mode** (Normal / Always on); `button` entities for **Silence alarms**, **Reset thermometer** and **Reset food safe**; and a diagnostic `binary_sensor` for **Connected**, showing whether Home Assistant currently holds a GATT connection to the probe. The two reset buttons are disabled by default as a safety guard — enable them in the entity settings first if you want to use them.
+
+**Limitations:**
+
+- Control is **beta / experimental** — it's been validated against the BLE spec but hasn't been confirmed against real hardware for every command.
+- **Direct-to-probe only**: writes go to a probe Home Assistant is directly connected to. Commands aren't yet routed through a Booster or Display (Meatnet routing), so the gauge and repeater-relayed probes aren't controllable yet.
+- **Gauge alarms aren't supported yet** — the gauge uses a different message format and isn't connected for control at this time.
+- **No disable path for alarms** in this release: setting a High or Low alarm enables it, and there's currently no way to turn it back off from Home Assistant.
+- Holding an active connection uses more probe battery and competes with the Combustion phone app for the probe's single connection slot.
 
 ## Dashboard card
 
@@ -92,7 +103,7 @@ type: custom:combustion-card
 entity: sensor.predictive_thermometer_10007dc0_core_temperature
 ```
 
-Probes show core temperature with ambient and instant-read sub-panels; while a cook target is set (see [Predictions](#predictions-experimental)) the sub-panels switch to the cook target and a "ready in" countdown.
+Probes show core temperature with ambient and instant-read sub-panels; while a cook target is set (see [Active connection: predictions + control](#active-connection-predictions--control-experimental)) the sub-panels switch to the cook target and a "ready in" countdown.
 
 Gauges render as the round dial: the grill temperature fills the SMOKE→INSANE ring, with red/blue marks for the high/low alarm setpoints. Extra gauge options:
 
