@@ -16,6 +16,10 @@ SYNC = bytes([0xCA, 0xFE])
 REQUEST_HEADER_SIZE = 6
 RESPONSE_HEADER_SIZE = 7
 
+# Index of the virtual "core" sensor within the 11-sensor alarm layout
+# (T1-T8, then virtual core/surface/ambient).
+CORE_SENSOR_INDEX = 8
+
 
 def crc16_ccitt(data: bytes) -> int:
     """CRC-16/CCITT-FALSE over the given bytes."""
@@ -131,3 +135,41 @@ def reset_probe() -> bytes:
 def reset_food_safe() -> bytes:
     """Build a Reset Food Safe command."""
     return build_request(MessageType.RESET_FOOD_SAFE, b"")
+
+
+def _alarm_word(enabled: bool, temp_c: float) -> bytes:
+    """Build a 2-byte little-endian AlarmStatus word.
+
+    Bits 3-15 of the 16-bit word hold the raw temperature,
+    ``round((temp_c + 20.0) / 0.1)`` clamped to ``[0, 0x1FFF]``. Bit 0 of the
+    low byte is set when the alarm is enabled; tripped (bit 1) and alarming
+    (bit 2) are always 0 in a command.
+    """
+    raw13 = round((temp_c + 20.0) / 0.1)
+    raw13 = min(max(raw13, 0), 0x1FFF)
+    raw16 = (raw13 << 3) & 0xFFFF
+    low_byte = (raw16 & 0xFF) | (0x01 if enabled else 0x00)
+    high_byte = (raw16 >> 8) & 0xFF
+    return bytes([low_byte, high_byte])
+
+
+def set_probe_high_low_alarm(
+    sensor_index: int,
+    high_enabled: bool,
+    high_temp_c: float,
+    low_enabled: bool,
+    low_temp_c: float,
+) -> bytes:
+    """Build a Set Probe High/Low Alarm command for one sensor (others left unset).
+
+    The payload is a fixed 44-byte structure covering all 11 alarmable
+    sensors (T1-T8, virtual core, surface, ambient): 11 high-alarm words
+    followed by 11 low-alarm words, 2 bytes each. Only ``sensor_index``'s
+    words are written; every other sensor's words stay zero (unset).
+    """
+    payload = bytearray(44)
+    high_offset = sensor_index * 2
+    low_offset = 22 + sensor_index * 2
+    payload[high_offset:high_offset + 2] = _alarm_word(high_enabled, high_temp_c)
+    payload[low_offset:low_offset + 2] = _alarm_word(low_enabled, low_temp_c)
+    return build_request(MessageType.SET_PROBE_HIGH_LOW_ALARM, bytes(payload))
