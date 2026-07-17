@@ -32,6 +32,14 @@ class _Control:
         self.power_mode_calls.append((serial, mode))
 
 
+class _LastState:
+    """Fake restored state object mimicking homeassistant.core.State."""
+
+    def __init__(self, state):
+        """Initialize with the given state string."""
+        self.state = state
+
+
 class _DeviceData:
     """Minimal stand-in for CombustionProbeData."""
 
@@ -41,11 +49,32 @@ class _DeviceData:
 
 @pytest.mark.asyncio
 async def test_select_power_mode_option_maps_to_enum():
-    """Selecting a power-mode label sends the mapped PowerMode."""
+    """Selecting a power-mode label sends the mapped PowerMode and reflects it."""
     control = _Control()
     ent = CombustionPowerModeSelect(_Conn(), control, _DeviceData())
     await ent.async_select_option("Always on")
     assert control.power_mode_calls == [("S1", PowerMode.ALWAYS_ON)]
+    # Optimistic: the entity now shows the selected option, not "unknown".
+    assert ent.current_option == "Always on"
+
+
+def test_power_mode_defaults_to_normal():
+    """With no readback source, the entity shows the factory default, never unknown."""
+    ent = CombustionPowerModeSelect(_Conn(), _Control(), _DeviceData())
+    assert ent.current_option == "Normal"
+
+
+@pytest.mark.asyncio
+async def test_power_mode_restores_last_option():
+    """On restart, the entity restores the last displayed option."""
+    ent = CombustionPowerModeSelect(_Conn(), _Control(), _DeviceData())
+
+    async def _fake_last_state():
+        return _LastState("Always on")
+
+    ent.async_get_last_state = _fake_last_state
+    await ent.async_added_to_hass()
+    assert ent.current_option == "Always on"
 
 
 @pytest.mark.asyncio
