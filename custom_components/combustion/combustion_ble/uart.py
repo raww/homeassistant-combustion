@@ -140,15 +140,22 @@ def reset_food_safe() -> bytes:
 def _alarm_word(enabled: bool, temp_c: float) -> bytes:
     """Build a 2-byte little-endian AlarmStatus word.
 
-    Bits 3-15 of the 16-bit word hold the raw temperature,
-    ``round((temp_c + 20.0) / 0.1)`` clamped to ``[0, 0x1FFF]``. Bit 0 of the
-    low byte is set when the alarm is enabled; tripped (bit 1) and alarming
-    (bit 2) are always 0 in a command.
+    A disabled alarm encodes as the all-zero canonical unset word
+    (``0x0000``), matching the combustion reference implementation; the
+    device ignores the temperature bits when the enable bit is clear, so
+    the threshold argument is irrelevant in that case.
+
+    When enabled, bits 3-15 of the 16-bit word hold the raw temperature,
+    ``round((temp_c + 20.0) / 0.1)`` clamped to ``[0, 0x1FFF]``, and bit 0
+    of the low byte is set; tripped (bit 1) and alarming (bit 2) are always
+    0 in a command.
     """
+    if not enabled:
+        return bytes([0x00, 0x00])
     raw13 = round((temp_c + 20.0) / 0.1)
     raw13 = min(max(raw13, 0), 0x1FFF)
     raw16 = (raw13 << 3) & 0xFFFF
-    low_byte = (raw16 & 0xFF) | (0x01 if enabled else 0x00)
+    low_byte = (raw16 & 0xFF) | 0x01
     high_byte = (raw16 >> 8) & 0xFF
     return bytes([low_byte, high_byte])
 

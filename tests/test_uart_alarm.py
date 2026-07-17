@@ -9,24 +9,21 @@ from combustion.combustion_ble.uart import (
 def test_alarm_word_encoding():
     """An enabled alarm word packs raw13 temp (bits 3-15) with bit0 set.
 
-    Note: the temperature bits are always encoded from ``temp_c``,
-    regardless of ``enabled`` -- only bit0 (the enable flag) depends on it.
-    A disabled word at 0.0C is therefore NOT the all-zero word; raw13 for
-    0.0C is round((0.0 + 20.0) / 0.1) == 200 == 0x0C8, giving raw16 ==
-    0x0640 and word bytes 40 06. This is confirmed by the CRC-verified
-    reference frame in test_set_probe_high_low_alarm_core_high, whose low
-    word (disabled, 0.0C) is exactly "4006".
+    A disabled alarm always encodes as the all-zero canonical unset word,
+    regardless of the temperature argument -- the device ignores the
+    threshold bits when the enable bit is clear.
     """
     assert _alarm_word(True, 95.0).hex() == "f123"
-    assert _alarm_word(False, 0.0).hex() == "4006"
+    assert _alarm_word(False, 0.0).hex() == "0000"
+    assert _alarm_word(False, 40.0).hex() == "0000"
 
 
 def test_set_probe_high_low_alarm_core_high():
     """Setting the core sensor's high alarm matches the reference frame."""
     frame = set_probe_high_low_alarm(CORE_SENSOR_INDEX, True, 95.0, False, 0.0)
     assert frame.hex() == (
-        "cafea7270b2c00000000000000000000000000000000f123"
-        "0000000000000000000000000000000000000000400600000000"
+        "cafe32800b2c00000000000000000000000000000000f123"
+        "0000000000000000000000000000000000000000000000000000"
     )
 
     payload = frame[6:]
@@ -40,6 +37,15 @@ def test_set_probe_high_low_alarm_core_high():
     set_bit = word & 1
     assert temp_c == 95.0
     assert set_bit == 1
+
+
+def test_set_probe_high_low_alarm_core_high_and_low():
+    """Setting both the core sensor's high and low alarms matches the reference frame."""
+    frame = set_probe_high_low_alarm(CORE_SENSOR_INDEX, True, 95.0, True, 40.0)
+    assert frame.hex() == (
+        "cafe7b3b0b2c00000000000000000000000000000000f123"
+        "0000000000000000000000000000000000000000c11200000000"
+    )
 
 
 def test_alarm_clamps_temperature():
