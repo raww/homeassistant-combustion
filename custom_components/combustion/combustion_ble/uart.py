@@ -70,6 +70,7 @@ class MessageType(IntEnum):
 
     SET_PROBE_ID = 0x01
     SET_PROBE_COLOR = 0x02
+    READ_SESSION_INFO = 0x03
     SET_PREDICTION = 0x05
     RESET_FOOD_SAFE = 0x08
     SET_POWER_MODE = 0x09
@@ -105,6 +106,11 @@ def set_prediction(setpoint_c: float, mode: PredictionMode) -> bytes:
     word = (clamped & 0x3FF) | (int(mode) << 10)
     payload = bytes([word & 0xFF, (word >> 8) & 0xFF])
     return build_request(MessageType.SET_PREDICTION, payload)
+
+
+def read_session_info() -> bytes:
+    """Build a Read Session Information command (used as a post-connect canary)."""
+    return build_request(MessageType.READ_SESSION_INFO, b"")
 
 
 def silence_alarms() -> bytes:

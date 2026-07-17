@@ -56,8 +56,30 @@ async def test_send_command_writes_when_connected(hass):
     await mgr._on_connected("SERIAL1", client)
     frame = b"\xca\xfe\x00\x00\x0c\x00"
     await mgr.async_send_command("SERIAL1", frame)
-    # Writes must be write-without-response, matching the Combustion reference app.
-    assert client.written[0] == (ConnectionManager.UART_RX_CHAR, frame, False)
+    # The user command is the last write (a session-info canary is written on
+    # connect first); it must be write-without-response, per the reference app.
+    assert client.written[-1] == (ConnectionManager.UART_RX_CHAR, frame, False)
+
+
+@pytest.mark.asyncio
+async def test_notifications_enabled_before_client_is_writable(hass):
+    """The probe is not marked connected until its notifications are enabled.
+
+    A command must never be able to write before the UART TX subscription is
+    active, so is_connected must stay False until start_notify has run.
+    """
+    mgr = _manager(hass)
+    order = []
+
+    class _OrderingClient(_FakeClient):
+        async def start_notify(self, char, handler):
+            order.append(("notify", char, mgr.is_connected("SERIAL1")))
+            await super().start_notify(char, handler)
+
+    await mgr._on_connected("SERIAL1", _OrderingClient())
+    # start_notify ran while is_connected was still False for every subscription.
+    assert order and all(connected is False for _, _, connected in order)
+    assert mgr.is_connected("SERIAL1") is True
 
 
 @pytest.mark.asyncio

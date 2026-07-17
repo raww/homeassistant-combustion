@@ -17,7 +17,10 @@ from homeassistant.exceptions import HomeAssistantError
 from custom_components.combustion.combustion_ble.combustion_probe_data import (
     CombustionProbeData,
 )
-from custom_components.combustion.combustion_ble.uart import parse_response
+from custom_components.combustion.combustion_ble.uart import (
+    parse_response,
+    read_session_info,
+)
 from custom_components.combustion.const import BT_MANUFACTURER_ID, LOGGER
 from custom_components.combustion.probe_manager import ProbeManager
 
@@ -50,6 +53,9 @@ class ConnectionManager:
         self._new_probe_listeners: list[Callable] = []
         self._seen_probes: set[str] = set()
         self._probe_data: dict[str, CombustionProbeData] = {}
+        # Subscribe UART TX first so it is (re)enabled before the status
+        # characteristic on connect, matching the reference app's order.
+        self.subscribe(self.UART_TX_CHAR, self._on_uart_response)
 
     def async_init(self) -> None:
         """Register the connectable advert callback (only when enabled)."""
@@ -67,9 +73,6 @@ class ConnectionManager:
         except Exception:  # noqa: BLE001
             _LOGGER.warning("Could not register connectable callback; active connection disabled", exc_info=True)
             return
-        # Match the reference app: always enable UART TX notifications, which is
-        # where command responses (with a success/fail byte) arrive.
-        self.subscribe(self.UART_TX_CHAR, self._on_uart_response)
         self.entry.async_on_unload(self._async_shutdown)
 
     def _on_uart_response(self, serial: str, data: bytes) -> None:
@@ -177,13 +180,30 @@ class ConnectionManager:
                         await client.disconnect()
 
     async def _on_connected(self, serial: str, client) -> None:
-        """Record a live client and (re)subscribe all notify handlers."""
-        self._clients[serial] = client
+        """Enable notifications, then mark the client writable and announce it.
+
+        Notifications (UART TX first) are enabled BEFORE the client is recorded
+        as connected, so a command can never race ahead of the TX subscription
+        that carries its response — matching the reference app's connect order.
+        """
         for char, handler in self._subscriptions.items():
             try:
                 await client.start_notify(char, self._make_notify(serial, handler))
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("start_notify failed for %s on [%s]", char, serial, exc_info=True)
+
+        mtu = getattr(client, "mtu_size", None)
+        if mtu is not None:
+            _LOGGER.debug("Connected to [%s] (MTU %s)", serial, mtu)
+
+        # Only now is the probe ready to accept commands.
+        self._clients[serial] = client
+
+        # Canary: a harmless Read Session Info write right after connect confirms
+        # the write path works; its response is logged by _on_uart_response.
+        with contextlib.suppress(Exception):
+            await client.write_gatt_char(self.UART_RX_CHAR, read_session_info(), response=False)
+
         self._notify_conn_listeners()
         if serial not in self._seen_probes:
             self._seen_probes.add(serial)
