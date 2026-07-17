@@ -1,6 +1,10 @@
 """Tests for ControlManager -> ConnectionManager wiring."""
 import pytest
-from combustion.combustion_ble.uart import PredictionMode, set_prediction
+from combustion.combustion_ble.uart import (
+    PredictionMode,
+    set_prediction,
+    set_probe_high_low_alarm,
+)
 from combustion.control_manager import ControlManager
 
 
@@ -40,3 +44,23 @@ async def test_silence_sends_silence_frame():
     mgr = ControlManager(conn)
     await mgr.async_silence("S1")
     assert conn.sent[0][1].hex() == "cafe62580c00"
+
+
+@pytest.mark.asyncio
+async def test_set_high_alarm_sends_command():
+    """Setting the high alarm sends a combined high/low alarm frame for the core sensor."""
+    conn = _FakeConn()
+    mgr = ControlManager(conn)
+    await mgr.async_set_high_alarm("S1", 95.0)
+    assert conn.sent[-1][0] == "S1"
+    assert conn.sent[-1][1] == set_probe_high_low_alarm(8, True, 95.0, False, 0.0)
+
+
+@pytest.mark.asyncio
+async def test_set_low_then_high_enables_both():
+    """Setting low then high remembers both and sends a frame with both enabled."""
+    conn = _FakeConn()
+    mgr = ControlManager(conn)
+    await mgr.async_set_low_alarm("S1", 40.0)
+    await mgr.async_set_high_alarm("S1", 95.0)
+    assert conn.sent[-1][1] == set_probe_high_low_alarm(8, True, 95.0, True, 40.0)

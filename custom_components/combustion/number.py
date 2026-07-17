@@ -40,6 +40,60 @@ class CombustionTargetTemperature(CombustionConnectionGatedEntity, NumberEntity)
         await self._control.async_set_target(self._serial, value, self._default_mode)
 
 
+class CombustionHighAlarm(CombustionConnectionGatedEntity, NumberEntity):
+    """Writable high-alarm threshold for the probe's core sensor."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_native_min_value = 0.0
+    _attr_native_max_value = 300.0
+    _attr_native_step = 1
+    _attr_mode = NumberMode.BOX
+
+    def __init__(self, connection_manager, control_manager, device_data) -> None:
+        """Initialize."""
+        super().__init__(connection_manager, device_data)
+        self._control = control_manager
+        self._attr_unique_id = f"{device_data.serial_number}--high-alarm-setpoint"
+
+    @property
+    def name(self):
+        """Entity name."""
+        return "High alarm"
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Send a new high-alarm threshold to the probe."""
+        await self._control.async_set_high_alarm(self._serial, value)
+
+
+class CombustionLowAlarm(CombustionConnectionGatedEntity, NumberEntity):
+    """Writable low-alarm threshold for the probe's core sensor."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_native_min_value = 0.0
+    _attr_native_max_value = 300.0
+    _attr_native_step = 1
+    _attr_mode = NumberMode.BOX
+
+    def __init__(self, connection_manager, control_manager, device_data) -> None:
+        """Initialize."""
+        super().__init__(connection_manager, device_data)
+        self._control = control_manager
+        self._attr_unique_id = f"{device_data.serial_number}--low-alarm-setpoint"
+
+    @property
+    def name(self):
+        """Entity name."""
+        return "Low alarm"
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Send a new low-alarm threshold to the probe."""
+        await self._control.async_set_low_alarm(self._serial, value)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     """Set up number entities (only when active connection is enabled)."""
     probe_manager = hass.data[DOMAIN]

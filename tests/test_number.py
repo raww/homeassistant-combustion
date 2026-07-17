@@ -1,7 +1,11 @@
-"""Tests for the target-temperature number entity."""
+"""Tests for the target-temperature and alarm number entities."""
 import pytest
 from combustion.combustion_ble.uart import PredictionMode
-from combustion.number import CombustionTargetTemperature
+from combustion.number import (
+    CombustionHighAlarm,
+    CombustionLowAlarm,
+    CombustionTargetTemperature,
+)
 
 
 class _Conn:
@@ -26,6 +30,14 @@ class _Control:
     async def async_set_target(self, serial, temp_c, mode):
         """Record the call args."""
         self.calls.append((serial, temp_c, mode))
+
+    async def async_set_high_alarm(self, serial, temp_c):
+        """Record the high-alarm call args."""
+        self.calls.append((serial, temp_c))
+
+    async def async_set_low_alarm(self, serial, temp_c):
+        """Record the low-alarm call args."""
+        self.calls.append((serial, temp_c))
 
 
 class _DeviceData:
@@ -57,3 +69,21 @@ async def test_available_reflects_connection():
         _Conn(connected=False), control, _DeviceData(), default_mode=PredictionMode.TIME_TO_REMOVAL
     )
     assert ent2.available is False
+
+
+@pytest.mark.asyncio
+async def test_high_alarm_sets_value_via_control():
+    """Setting the high-alarm number calls ControlManager.async_set_high_alarm."""
+    control = _Control()
+    ent = CombustionHighAlarm(_Conn(), control, _DeviceData())
+    await ent.async_set_native_value(95.0)
+    assert control.calls == [("S1", 95.0)]
+
+
+@pytest.mark.asyncio
+async def test_low_alarm_sets_value_via_control():
+    """Setting the low-alarm number calls ControlManager.async_set_low_alarm."""
+    control = _Control()
+    ent = CombustionLowAlarm(_Conn(), control, _DeviceData())
+    await ent.async_set_native_value(40.0)
+    assert control.calls == [("S1", 40.0)]
