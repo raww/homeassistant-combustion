@@ -1,4 +1,8 @@
-"""Select platform: prediction mode, probe colour, and power mode."""
+"""Select platform: probe power mode.
+
+Prediction-mode and probe-colour selects were removed pending on-hardware
+validation (they had no observable effect).
+"""
 from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity
@@ -6,80 +10,15 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.restore_state import RestoreEntity
 
-from .combustion_ble.uart import PowerMode, PredictionMode
+from .combustion_ble.uart import PowerMode
 from .const import DOMAIN
 from .entity import CombustionConnectionGatedEntity
-
-_MODE_OPTIONS = {
-    "Off": PredictionMode.NONE,
-    "Time to removal": PredictionMode.TIME_TO_REMOVAL,
-    "Removal and resting": PredictionMode.REMOVAL_AND_RESTING,
-}
-
-_COLOUR_OPTIONS = {f"Color {n}": n - 1 for n in range(1, 9)}
 
 _POWER_MODE_OPTIONS = {
     "Normal": PowerMode.NORMAL,
     "Always on": PowerMode.ALWAYS_ON,
 }
-
-
-class CombustionModeSelect(CombustionConnectionGatedEntity, RestoreEntity, SelectEntity):
-    """Writable prediction mode (Off / Time to removal / Removal and resting)."""
-
-    _attr_has_entity_name = True
-    _attr_entity_category = EntityCategory.CONFIG
-    _attr_options = list(_MODE_OPTIONS.keys())
-
-    def __init__(self, connection_manager, control_manager, device_data) -> None:
-        """Initialize."""
-        super().__init__(connection_manager, device_data)
-        self._control = control_manager
-        self._attr_unique_id = f"{device_data.serial_number}--prediction-mode"
-
-    @property
-    def name(self):
-        """Entity name."""
-        return "Prediction mode"
-
-    async def async_select_option(self, option: str) -> None:
-        """Send the mapped prediction mode to the probe."""
-        self._attr_current_option = option
-        await self._control.async_set_mode(self._serial, _MODE_OPTIONS[option])
-        if self.hass is not None:
-            self.async_write_ha_state()
-
-    async def async_added_to_hass(self) -> None:
-        """Restore the last displayed option (not seeded into ControlManager: it has no target to send)."""
-        self.async_on_remove(self._conn.add_connection_listener(self._handle_conn_update))
-        last = await self.async_get_last_state()
-        if last is not None and last.state in self._attr_options:
-            self._attr_current_option = last.state
-
-
-class CombustionColourSelect(CombustionConnectionGatedEntity, SelectEntity):
-    """Writable probe colour (Color 1..8)."""
-
-    _attr_has_entity_name = True
-    _attr_entity_category = EntityCategory.CONFIG
-    _attr_options = list(_COLOUR_OPTIONS.keys())
-
-    def __init__(self, connection_manager, control_manager, device_data) -> None:
-        """Initialize."""
-        super().__init__(connection_manager, device_data)
-        self._control = control_manager
-        self._attr_unique_id = f"{device_data.serial_number}--probe-colour"
-
-    @property
-    def name(self):
-        """Entity name."""
-        return "Probe colour"
-
-    async def async_select_option(self, option: str) -> None:
-        """Send the mapped colour index to the probe."""
-        await self._control.async_set_probe_colour(self._serial, _COLOUR_OPTIONS[option])
 
 
 class CombustionPowerModeSelect(CombustionConnectionGatedEntity, SelectEntity):
@@ -115,8 +54,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     def _create(probe_data):
         async_add_entities([
-            CombustionModeSelect(conn, control, probe_data),
-            CombustionColourSelect(conn, control, probe_data),
             CombustionPowerModeSelect(conn, control, probe_data),
         ])
 

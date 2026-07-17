@@ -72,7 +72,9 @@ Combustion's "ready in" prediction — cook target, estimated time to removal, a
 
 With **Active connection** turned on (and a connectable proxy in range), each probe gains `Prediction`, `Ready in`, `Cook target` and `Estimated core` sensors, populated while the probe is connected and a cook target is set in the Combustion app. Leave it off if you only have passive proxies — it does nothing without a connectable path.
 
-Turning it on also enables writable **control entities** for each probe, created while HA holds a GATT connection to it: `number` entities for **Target temperature** (cook-to setpoint), **High alarm** and **Low alarm**; `select` entities for **Prediction mode** (Off / Time to removal / Removal and resting), **Probe colour** and **Power mode** (Normal / Always on); `button` entities for **Silence alarms**, **Reset thermometer** and **Reset food safe**; and a diagnostic `binary_sensor` for **Connected**, showing whether Home Assistant currently holds a GATT connection to the probe. The two reset buttons are disabled by default as a safety guard — enable them in the entity settings first if you want to use them.
+Turning it on also enables writable **control entities** for each probe, created while HA holds a GATT connection to it: `number` entities for **Target temperature** (cook-to setpoint), **High alarm** and **Low alarm**; a `select` for **Power mode** (Normal / Always on); `button` entities for **Silence alarms**, **Reset thermometer** and **Reset food safe**; and a diagnostic `binary_sensor` for **Connected**, showing whether Home Assistant currently holds a GATT connection to the probe. The two reset buttons are disabled by default as a safety guard — enable them in the entity settings first if you want to use them.
+
+**Target temperature is two-way**: it reflects the probe's live cook target as reported over Bluetooth, so a target set elsewhere (e.g. the Combustion app) shows up in Home Assistant too. (Prediction-mode and probe-colour selects were removed pending on-hardware validation — they had no observable effect.)
 
 **Limitations:**
 

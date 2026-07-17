@@ -44,17 +44,32 @@ class CombustionTargetTemperature(CombustionConnectionGatedEntity, RestoreEntity
     _attr_native_step = 0.5
     _attr_mode = NumberMode.BOX
 
-    def __init__(self, connection_manager, control_manager, device_data, default_mode: PredictionMode) -> None:
+    def __init__(self, connection_manager, control_manager, device_data, default_mode: PredictionMode,
+                 prediction_manager=None) -> None:
         """Initialize."""
         super().__init__(connection_manager, device_data)
         self._control = control_manager
         self._default_mode = default_mode
+        self._prediction = prediction_manager
         self._attr_unique_id = f"{device_data.serial_number}--target-temperature"
 
     @property
     def name(self):
         """Entity name."""
         return "Target temperature"
+
+    @property
+    def native_value(self):
+        """The probe's live cook target if it reports one, else the last value set from HA.
+
+        Reading the setpoint from the prediction status makes this two-way: a
+        cook target set elsewhere (e.g. the Combustion app) is reflected here.
+        """
+        if self._prediction is not None:
+            pred = self._prediction.prediction(self._serial)
+            if pred is not None and pred.setpoint_c is not None:
+                return pred.setpoint_c
+        return self._attr_native_value
 
     async def async_set_native_value(self, value: float) -> None:
         """Send a new target temperature to the probe."""
@@ -64,8 +79,11 @@ class CombustionTargetTemperature(CombustionConnectionGatedEntity, RestoreEntity
             self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
-        """Restore the last target temperature and seed ControlManager (no send)."""
+        """Restore the last target, seed ControlManager (no send), and track the live setpoint."""
         await _async_restore_native_value(self)
+        if self._prediction is not None:
+            # Refresh when the probe reports a new setpoint (from any source).
+            self.async_on_remove(self._prediction.add_update_listener(self._handle_conn_update))
 
     def _seed_control(self, value: float) -> None:
         """Seed the remembered target/mode without sending a command."""
@@ -155,11 +173,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         return
     conn = probe_manager.connection_manager
     control = probe_manager.control_manager
+    prediction_manager = hass.data.get(f"{DOMAIN}_prediction")
 
     def _create(probe_data):
         async_add_entities([
             CombustionTargetTemperature(
-                conn, control, probe_data, default_mode=PredictionMode.TIME_TO_REMOVAL
+                conn, control, probe_data, default_mode=PredictionMode.TIME_TO_REMOVAL,
+                prediction_manager=prediction_manager,
             ),
             CombustionHighAlarm(conn, control, probe_data),
             CombustionLowAlarm(conn, control, probe_data),

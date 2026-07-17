@@ -72,6 +72,53 @@ class _DeviceData:
     device_type = "PROBE"
 
 
+class _Prediction:
+    """Fake PredictionData carrying a live setpoint."""
+
+    def __init__(self, setpoint_c):
+        """Initialize with the given setpoint (or None)."""
+        self.setpoint_c = setpoint_c
+
+
+class _PredictionManager:
+    """Fake prediction manager returning a fixed prediction for the serial."""
+
+    def __init__(self, prediction):
+        """Initialize with the prediction to return (or None)."""
+        self._prediction = prediction
+
+    def prediction(self, serial):
+        """Return the configured prediction."""
+        return self._prediction
+
+    def add_update_listener(self, listener):
+        """Return a no-op remover, matching the real PredictionManager's API."""
+        return lambda: None
+
+
+@pytest.mark.asyncio
+async def test_native_value_reflects_live_setpoint():
+    """The target reads the probe's live cook target from the prediction status."""
+    control = _Control()
+    ent = CombustionTargetTemperature(
+        _Conn(), control, _DeviceData(), default_mode=PredictionMode.TIME_TO_REMOVAL,
+        prediction_manager=_PredictionManager(_Prediction(70.0)),
+    )
+    assert ent.native_value == 70.0
+
+
+@pytest.mark.asyncio
+async def test_native_value_falls_back_when_no_live_setpoint():
+    """With no live setpoint, the target shows the last value set from HA."""
+    control = _Control()
+    ent = CombustionTargetTemperature(
+        _Conn(), control, _DeviceData(), default_mode=PredictionMode.TIME_TO_REMOVAL,
+        prediction_manager=_PredictionManager(_Prediction(None)),
+    )
+    ent._attr_native_value = 55.0
+    assert ent.native_value == 55.0
+
+
 @pytest.mark.asyncio
 async def test_set_native_value_calls_control():
     """Setting the number sends a target to the ControlManager."""
