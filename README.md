@@ -87,7 +87,9 @@ Turning it on also enables writable **control entities** for each probe, created
 
 ## Dashboard card
 
-The integration bundles a Lovelace card styled after the Combustion hardware. Probes render as the square 2nd-gen WiFi Display; the Giant Grill Gauge renders as its round dial with the SMOKE→INSANE ring. It registers itself automatically; no resource setup needed. Tap the LCD to open the temperature's details, including Home Assistant's built-in history graph.
+The integration bundles a Lovelace card styled after the Combustion hardware. Probes render as the square 2nd-gen WiFi Display; the Giant Grill Gauge renders as its round dial with the SMOKE→INSANE ring. It registers itself automatically; no resource setup needed, and it has a **visual editor** (pick the probe/gauge from the card picker — no YAML required). Tap the LCD to open the temperature's details, including Home Assistant's built-in history graph.
+
+When **Active connection** is enabled (see above), the probe card shows a **target temperature** control: use the − / + buttons to set the cook target directly, or tap the value for the full slider. It reflects the probe's live cook target, so a target set from the Combustion app appears here too.
 
 | Giant Grill Gauge | Combined pit + food | Probe, mid-cook |
 | :---: | :---: | :---: |

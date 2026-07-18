@@ -76,6 +76,10 @@ class CombustionCard extends HTMLElement {
     return core ? { entity: core } : { serial: '10007dc0' };
   }
 
+  static getConfigElement() {
+    return document.createElement('combustion-card-editor');
+  }
+
   setConfig(config) {
     let serial = (config.serial || '').toLowerCase();
     if (!serial && config.entity) {
@@ -108,6 +112,7 @@ class CombustionCard extends HTMLElement {
       ready_in: 'sensor.' + base + '_ready_in',
       cook_target: 'sensor.' + base + '_cook_target',
       prediction: 'sensor.' + base + '_prediction',
+      target: 'number.' + base + '_target_temperature',
     };
     const overrides = Object.assign({}, config.entities || {});
     if (overrides.temperature && this._isGauge) overrides.core = overrides.temperature;
@@ -190,6 +195,41 @@ class CombustionCard extends HTMLElement {
     this.dispatchEvent(ev);
   }
 
+  _targetMoreInfo() {
+    const ev = new Event('hass-more-info', { bubbles: true, composed: true });
+    ev.detail = { entityId: this._entities.target };
+    this.dispatchEvent(ev);
+  }
+
+  // min/max/step for the writable number.*_target_temperature entity. HA's
+  // number domain has used both min_value/max_value and min/max across
+  // versions, so accept either; fall back to sane probe-range defaults.
+  _targetLimits() {
+    const st = this._state('target');
+    const attrs = (st && st.attributes) || {};
+    const pick = (a, b, dflt) => {
+      const va = Number(a), vb = Number(b);
+      if (Number.isFinite(va)) return va;
+      if (Number.isFinite(vb)) return vb;
+      return dflt;
+    };
+    return {
+      min: pick(attrs.min_value, attrs.min, 0),
+      max: pick(attrs.max_value, attrs.max, 102),
+      step: pick(attrs.step, attrs.step, 0.5),
+    };
+  }
+
+  _stepTarget(dir) {
+    const st = this._state('target');
+    if (!st || !this._hass) return;
+    const { min, max, step } = this._targetLimits();
+    const cur = Number(st.state);
+    const base = Number.isFinite(cur) ? cur : min;
+    const next = Math.max(min, Math.min(max, base + dir * step));
+    this._hass.callService('number', 'set_value', { entity_id: this._entities.target, value: next });
+  }
+
   // ---- shared LCD chrome ----
 
   _baseStyles() {
@@ -257,6 +297,21 @@ class CombustionCard extends HTMLElement {
       <span class="chip state cooking" id="chip-a"><span class="dot"></span>alarm</span>
       <span class="chip state sensor" id="chip-b"><span class="dot"></span>sensor</span>
       <span class="chip state battery" id="chip-batt"><span class="dot"></span>battery low</span>`;
+    // Persistent target-temperature stepper (probe only — driven by the writable
+    // number.*_target_temperature entity). Hidden via .show until that entity
+    // actually resolves to a state (see _updateFlat).
+    const targetBar = this._isGauge ? '' : `
+      <div class="target-bar" id="target-bar">
+        <button class="tgt-btn" id="tgt-minus" type="button" aria-label="Decrease target temperature">&minus;</button>
+        <div class="tgt-readout" id="tgt-readout" role="button" tabindex="0" aria-label="Open target temperature details">
+          <div class="tgt-label">target</div>
+          <div class="tgt-value-row">
+            <span class="digits"><span class="seg ghost" id="tgt-ghost">888</span><span class="seg lit" id="tgt"></span></span>
+            <span class="unit" id="tgt-unit">&deg;C</span>
+          </div>
+        </div>
+        <button class="tgt-btn" id="tgt-plus" type="button" aria-label="Increase target temperature">&plus;</button>
+      </div>`;
 
     root.innerHTML = `
       <style>
@@ -296,6 +351,25 @@ class CombustionCard extends HTMLElement {
         .sub .unit { font-size: 10px; font-weight: 800; margin-left: 5px; color: var(--lcd-ink); }
         .sub.right { text-align: right; }
         .sub.right .value-row { justify-content: flex-end; }
+        .target-bar { display: none; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; }
+        .target-bar.show { display: flex; }
+        .tgt-btn {
+          width: 26px; height: 26px; flex: none; border-radius: 50%; border: none;
+          background: var(--housing-deep);
+          box-shadow: inset 0 1px 2px rgba(0,0,0,.22), 0 1px 0 rgba(255,255,255,.35);
+          color: var(--ink); font: inherit; font-size: 16px; font-weight: 800; line-height: 1;
+          cursor: pointer; display: flex; align-items: center; justify-content: center;
+        }
+        .tgt-btn:active { box-shadow: inset 0 2px 4px rgba(0,0,0,.3); }
+        .tgt-btn:focus-visible { outline: 2px solid var(--ink); }
+        .tgt-readout { display: flex; flex-direction: column; align-items: center; cursor: pointer; padding: 2px 10px; border-radius: 8px; min-width: 64px; }
+        .tgt-readout:focus-visible { outline: 2px solid var(--ink); }
+        .tgt-readout .tgt-label { font-size: 10px; font-weight: 700; letter-spacing: .02em; color: var(--ink); opacity: .55; text-transform: lowercase; }
+        .tgt-readout .tgt-value-row { display: flex; align-items: baseline; line-height: 1; }
+        .tgt-readout .seg { font-size: 19px; }
+        .tgt-readout .digits .lit { color: var(--ink); }
+        .tgt-readout .digits .ghost { color: rgba(33,29,23,.16); }
+        .tgt-readout .unit { font-size: 10px; font-weight: 800; margin-left: 4px; color: var(--ink); }
         .buttons { display: flex; justify-content: center; gap: 10px; margin-top: 13px; }
         .chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 700; letter-spacing: .01em; background: var(--housing-deep); box-shadow: inset 0 1px 2px rgba(0,0,0,.22), 0 1px 0 rgba(255,255,255,.35); color: rgba(33,29,23,.55); transition: background .25s ease, color .25s ease; }
         .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(33,29,23,.28); transition: background .25s ease, box-shadow .25s ease; }
@@ -332,12 +406,25 @@ class CombustionCard extends HTMLElement {
           </div>
           <div class="subrow">${this._isGauge ? gaugeSubs : probeSubs}</div>
         </div>
+        ${targetBar}
         <div class="buttons">${this._isGauge ? gaugeChips : probeChips}</div>
       </div>
     `;
     const lcd = root.getElementById('lcd');
     lcd.addEventListener('click', () => this._moreInfo());
     lcd.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') this._moreInfo(); });
+
+    if (!this._isGauge) {
+      const minus = root.getElementById('tgt-minus');
+      const plus = root.getElementById('tgt-plus');
+      const readout = root.getElementById('tgt-readout');
+      minus.addEventListener('click', (ev) => { ev.stopPropagation(); this._stepTarget(-1); });
+      plus.addEventListener('click', (ev) => { ev.stopPropagation(); this._stepTarget(1); });
+      readout.addEventListener('click', (ev) => { ev.stopPropagation(); this._targetMoreInfo(); });
+      readout.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.stopPropagation(); this._targetMoreInfo(); }
+      });
+    }
   }
 
   _setSeg(id, text, unitId, unit) {
@@ -406,6 +493,16 @@ class CombustionCard extends HTMLElement {
         setGhost('sub-right-ghost', '888');
         setLabel('sub-right-unit', unit);
         this._setSeg('sub-right', available ? this._fmt(this._num('instant'), 0) : '', 'sub-right-unit', unit);
+      }
+
+      // persistent target-temperature readout, independent of prediction state
+      const targetBar = this.shadowRoot.getElementById('target-bar');
+      if (targetBar) {
+        const targetSt = this._state('target');
+        targetBar.classList.toggle('show', !!targetSt);
+        if (targetSt) {
+          this._setSeg('tgt', this._fmt(this._num('target'), 1), 'tgt-unit', unit);
+        }
       }
     }
 
@@ -648,10 +745,100 @@ class CombustionCard extends HTMLElement {
   }
 }
 
+// ================= GUI CONFIG EDITOR =================
+// Plain custom element (no ha-form dependency) so it stays robust across HA
+// versions. Renders native inputs for the handful of options worth exposing
+// in the picker; anything more advanced (entities overrides, secondary, etc)
+// stays YAML-only.
+
+class CombustionCardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = Object.assign({}, config);
+    this._render();
+  }
+
+  set hass(hass) {
+    // The form does not depend on hass; do NOT re-render here, or frequent hass
+    // updates would wipe the serial field while the user is typing into it.
+    this._hass = hass;
+  }
+
+  connectedCallback() {
+    this._render();
+  }
+
+  _esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+    const cfg = this._config;
+
+    this.shadowRoot.innerHTML = `
+      <style>
+        .form { display: flex; flex-direction: column; gap: 14px; padding: 8px 2px; }
+        .row { display: flex; flex-direction: column; gap: 4px; }
+        label { font-size: 13px; font-weight: 500; color: var(--primary-text-color, #212121); }
+        input, select {
+          font: inherit;
+          font-size: 14px;
+          padding: 8px 10px;
+          border-radius: 6px;
+          border: 1px solid var(--divider-color, #e0e0e0);
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color, #212121);
+        }
+        input:focus, select:focus { outline: 2px solid var(--primary-color, #03a9f4); outline-offset: -1px; }
+        .hint { font-size: 12px; color: var(--secondary-text-color, #727272); }
+      </style>
+      <div class="form">
+        <div class="row">
+          <label for="serial">Serial</label>
+          <input id="serial" type="text" value="${cfg.serial ? this._esc(cfg.serial) : ''}" placeholder="e.g. 10007dc0 or G000000123" />
+          <span class="hint">Probe serial (8 hex chars) or gauge serial. Leave blank if using an "entity" or "entities" override in YAML.</span>
+        </div>
+        <div class="row">
+          <label for="kind">Kind</label>
+          <select id="kind">
+            <option value="" ${!cfg.kind ? 'selected' : ''}>Auto (detect from serial)</option>
+            <option value="probe" ${cfg.kind === 'probe' ? 'selected' : ''}>Probe</option>
+            <option value="gauge" ${cfg.kind === 'gauge' ? 'selected' : ''}>Giant Grill Gauge</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="style">Style</label>
+          <select id="style">
+            <option value="" ${!cfg.style ? 'selected' : ''}>Auto</option>
+            <option value="round" ${cfg.style === 'round' ? 'selected' : ''}>Round</option>
+            <option value="square" ${cfg.style === 'square' ? 'selected' : ''}>Square</option>
+          </select>
+          <span class="hint">Round only applies to the Giant Grill Gauge; probes are always the square WiFi Display.</span>
+        </div>
+      </div>
+    `;
+
+    this.shadowRoot.getElementById('serial').addEventListener('change', (ev) => this._update('serial', ev.target.value.trim()));
+    this.shadowRoot.getElementById('kind').addEventListener('change', (ev) => this._update('kind', ev.target.value));
+    this.shadowRoot.getElementById('style').addEventListener('change', (ev) => this._update('style', ev.target.value));
+  }
+
+  _update(key, value) {
+    const next = Object.assign({}, this._config);
+    if (value) next[key] = value;
+    else delete next[key];
+    this._config = next;
+    this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: next }, bubbles: true, composed: true }));
+  }
+}
+
 customElements.define('combustion-card', CombustionCard);
+customElements.define('combustion-card-editor', CombustionCardEditor);
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'combustion-card',
   name: 'Combustion Card',
   description: 'Probe & Giant Grill Gauge card styled after Combustion hardware, with the round grill dial.',
+  preview: true,
 });
